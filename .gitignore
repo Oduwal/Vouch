@@ -1,0 +1,25 @@
+# secrets
+.env
+.env.*
+!.env.example
+*.pem
+near-credentials/
+
+# rust
+target/
+
+# node
+node_modules/
+.next/
+dist/
+
+# os
+.DS_Store
+Thumbs.db
+
+# vercel
+.vercel
+
+# design tooling output
+.taste-skill/
+.impeccable/
