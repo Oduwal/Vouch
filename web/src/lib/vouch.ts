@@ -57,6 +57,22 @@ export type Config = {
   juror_stake: string;
 };
 
+export type Juror = {
+  account: string;
+  stake: string;
+  open_cases: number;
+  votes_cast: number;
+  votes_with_majority: number;
+};
+
+export const JURY_SIZE = 3;
+
+// The draw skips both parties and the judge, as the contract does.
+export function eligibleJurors(jurors: Juror[], claim: Claim, config: Config) {
+  const parties = [claim.agent, claim.challenge?.challenger, config.judge];
+  return jurors.filter((j) => !parties.includes(j.account));
+}
+
 const YOCTO_PER_NEAR = BigInt(10) ** BigInt(24);
 const NANOS_PER_MS = BigInt(1_000_000);
 const PAGE = 100;

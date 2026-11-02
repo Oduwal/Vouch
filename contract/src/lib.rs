@@ -261,6 +261,16 @@ impl Contract {
         self.agents.values().skip(from).take(limit).collect()
     }
 
+    pub fn get_juror(&self, account: AccountId) -> Option<&Juror> {
+        self.jurors.get(&account)
+    }
+
+    pub fn get_jurors(&self, from_index: Option<u32>, limit: Option<u32>) -> Vec<&Juror> {
+        let from = from_index.unwrap_or(0) as usize;
+        let limit = limit.unwrap_or(50).min(100) as usize;
+        self.jurors.values().skip(from).take(limit).collect()
+    }
+
     /// Challenged claims waiting for the judge. The judge service polls this.
     pub fn get_waiting(&self) -> Vec<&Claim> {
         self.waiting

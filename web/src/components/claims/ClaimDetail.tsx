@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CONTRACT_ID, formatNear, minStake, nanosToMs, phaseOf, view, type Agent, type Claim, type Config } from "../../lib/vouch";
+import { CONTRACT_ID, formatNear, minStake, nanosToMs, phaseOf, view, type Agent, type Claim, type Config, type Juror } from "../../lib/vouch";
 import { Ticket, type TicketData } from "../Ticket";
+import { AppealPanel, JuryPanel } from "./AppealPanels";
 import { ChallengeForm } from "./ChallengeForm";
 import { formatClock, formatDate, statusLine, timeLeft, useNow } from "./format";
 
@@ -38,7 +39,9 @@ function caseSteps(claim: Claim, now: number): Step[] {
     const decided = status === "held" || status === "overturned";
     steps.push(
       appeal
-        ? { label: "Jury hearing the appeal", detail: `until ${formatDate(appeal.jury_until)}`, state: decided ? "done" : "now" }
+        ? decided
+          ? { label: appeal.decided ? `Jury sided with the ${appeal.decided}` : "Jury reached no majority", detail: `${appeal.votes.length} of ${appeal.jury.length} votes cast`, state: "done" }
+          : { label: "Jury hearing the appeal", detail: `until ${formatDate(appeal.jury_until)}`, state: "now" }
         : { label: decided ? "Appeal window closed" : "Open to appeal", detail: `${decided ? "" : "until "}${formatDate(ruling.appeal_until)}`, state: decided ? "done" : "now" },
     );
   }
@@ -72,7 +75,7 @@ function CaseTimeline({ steps }: { steps: Step[] }) {
   );
 }
 
-function Outcome({ claim, now }: { claim: Claim; now: number }) {
+function Outcome({ claim, config, jurors, now, onDone }: { claim: Claim; config: Config; jurors: Juror[] | null; now: number; onDone: () => void }) {
   const { challenge, ruling, appeal, status } = claim;
   let line = "";
   if (status === "open") line = "Nobody challenged in time. The bond returns to the agent's pool when the claim is closed.";
@@ -82,6 +85,9 @@ function Outcome({ claim, now }: { claim: Claim; now: number }) {
   if (status === "held") line = challenge ? `The call held. ${claim.agent} kept its bond and took the challenger's ${formatNear(challenge.stake)} NEAR stake.` : `The call held. Nobody challenged it and the bond went back to ${claim.agent}'s pool.`;
   if (status === "overturned" && challenge) line = `The call was overturned. ${challenge.challenger} received the ${formatNear(claim.bond)} NEAR bond and their stake back.`;
   if (status === "void" && challenge) line = `The judge gave no ruling in time, so nobody lost anything. The bond went back to ${claim.agent}'s pool and ${challenge.challenger} got their stake back.`;
+  if ((status === "held" || status === "overturned") && appeal) {
+    line = `${appeal.decided ? `The jury sided with the ${appeal.decided} and its majority split the ${formatNear(appeal.fee)} NEAR fee.` : `The jury reached no majority, so the judge's ruling stood and ${appeal.appellant} got the fee back.`} ${line}`;
+  }
 
   return (
     <section aria-labelledby="outcome-title" className="bg-surface p-5">
@@ -121,6 +127,9 @@ function Outcome({ claim, now }: { claim: Claim; now: number }) {
           </p>
         </>
       )}
+
+      {status === "ruled" && <AppealPanel claim={claim} config={config} jurors={jurors} now={now} onDone={onDone} />}
+      {appeal && <JuryPanel claim={claim} now={now} onDone={onDone} />}
     </section>
   );
 }
@@ -136,7 +145,7 @@ function toTicket(claim: Claim, now: number): TicketData {
   };
 }
 
-export function ClaimDetail({ initial, config, agent, serverNow }: { initial: Claim; config: Config; agent: Agent | null; serverNow: number }) {
+export function ClaimDetail({ initial, config, agent, jurors, serverNow }: { initial: Claim; config: Config; agent: Agent | null; jurors: Juror[] | null; serverNow: number }) {
   const [claim, setClaim] = useState(initial);
   const [failed, setFailed] = useState(false);
   const now = useNow(serverNow);
@@ -204,7 +213,7 @@ export function ClaimDetail({ initial, config, agent, serverNow }: { initial: Cl
 
           <CaseTimeline steps={caseSteps(claim, now)} />
 
-          {phase === "open" ? <ChallengeForm claim={claim} config={config} onFiled={refresh} /> : <Outcome claim={claim} now={now} />}
+          {phase === "open" ? <ChallengeForm claim={claim} config={config} onFiled={refresh} /> : <Outcome claim={claim} config={config} jurors={jurors} now={now} onDone={refresh} />}
 
           {failed && (
             <p className="text-[0.8125rem] text-muted">

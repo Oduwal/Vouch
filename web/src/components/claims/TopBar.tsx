@@ -29,8 +29,11 @@ export function TopBar() {
           <Link href="/claims" className="py-2 no-underline hover:underline">
             Calls
           </Link>
-          <Link href="/#check" className="py-2 no-underline hover:underline">
-            Check<span className="max-sm:hidden"> an account</span>
+          <Link href="/jury" className="py-2 no-underline hover:underline">
+            Jury
+          </Link>
+          <Link href="/#check" className="py-2 no-underline hover:underline max-sm:hidden">
+            Check an account
           </Link>
         </nav>
         <div className="ml-auto flex min-w-0 items-center gap-3">

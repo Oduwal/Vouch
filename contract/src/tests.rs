@@ -225,6 +225,15 @@ fn with_jurors(mut c: Contract, names: &[&str]) -> Contract {
 }
 
 #[test]
+fn jury_pool_can_be_read() {
+    let c = with_jurors(setup(), &["j1.near", "j2.near"]);
+    assert_eq!(c.get_jurors(None, None).len(), 2);
+    assert_eq!(c.get_jurors(Some(1), Some(5)).len(), 1);
+    assert!(c.get_juror("j1.near".parse().unwrap()).is_some());
+    assert!(c.get_juror("nobody.near".parse().unwrap()).is_none());
+}
+
+#[test]
 #[should_panic(expected = "Only the side that lost can appeal")]
 fn only_the_loser_appeals() {
     let mut c = with_jurors(ruled(Side::Challenger), &["j1.near", "j2.near", "j3.near"]);

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { connection } from "next/server";
 import { Suspense } from "react";
 import { ClaimDetail, ClaimDetailSkeleton } from "../../../components/claims/ClaimDetail";
-import { view, type Agent, type Claim, type Config } from "../../../lib/vouch";
+import { view, type Agent, type Claim, type Config, type Juror } from "../../../lib/vouch";
 
 function Missing({ id }: { id: string }) {
   return (
@@ -15,8 +15,12 @@ function Missing({ id }: { id: string }) {
   );
 }
 
-async function loadAgent(account: string) {
-  return { agent: await view<Agent | null>("get_agent", { account }).catch(() => null), now: Date.now() };
+async function loadPeople(account: string) {
+  const [agent, jurors] = await Promise.all([
+    view<Agent | null>("get_agent", { account }).catch(() => null),
+    view<Juror[]>("get_jurors", { limit: 100 }).catch(() => null),
+  ]);
+  return { agent, jurors, now: Date.now() };
 }
 
 async function Loaded({ params }: { params: Promise<{ id: string }> }) {
@@ -41,8 +45,8 @@ async function Loaded({ params }: { params: Promise<{ id: string }> }) {
   }
   if (!claim) return <Missing id={id} />;
 
-  const { agent, now } = await loadAgent(claim.agent);
-  return <ClaimDetail initial={claim} config={config} agent={agent} serverNow={now} />;
+  const { agent, jurors, now } = await loadPeople(claim.agent);
+  return <ClaimDetail initial={claim} config={config} agent={agent} jurors={jurors} serverNow={now} />;
 }
 
 export default function ClaimPage({ params }: PageProps<"/claims/[id]">) {
