@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "demo:attack": "tsx --env-file-if-exists=../../.env scripts/attack-demo.ts"
   },
   "dependencies": {
     "@phala/dcap-qvl": "0.7.0",
@@ -24,6 +25,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.4.3",
     "tailwindcss": "^4",
+    "tsx": "4.21.0",
     "typescript": "^5"
   },
   "packageManager": "pnpm@11.20.0"
