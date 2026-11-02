@@ -3,7 +3,8 @@ import type { Level, Reason } from "../lib/signals";
 export type TicketData = {
   account: string;
   verdict: Level;
-  reasons: Reason[];
+  // On-chain reasons are plain text, so the level is only known for a fresh check.
+  reasons: (Omit<Reason, "level"> & { level?: Level })[];
   issuer: string;
   bond: string;
   note: string;
@@ -53,7 +54,7 @@ export function Ticket({ data, lit = false }: { data: TicketData; lit?: boolean 
       <ul className="mt-[6%] space-y-2 text-[0.9375rem] leading-snug">
         {data.reasons.slice(0, 3).map((r) => (
           <li key={r.text} className="flex gap-2.5">
-            <LevelIcon level={r.level} className="mt-0.5" />
+            {r.level && <LevelIcon level={r.level} className="mt-0.5" />}
             <span>{r.text}</span>
           </li>
         ))}

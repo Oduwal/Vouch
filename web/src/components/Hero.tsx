@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Check } from "../lib/signals";
 import { Ticket, sampleTickets, type TicketData } from "./Ticket";
@@ -13,7 +14,7 @@ function toTicket(check: Check): TicketData {
     verdict: check.verdict,
     reasons: check.reasons,
     issuer: "Preview, not bonded yet",
-    bond: "Live mainnet data",
+    bond: `Live ${check.network} data`,
     note: `Read ${timeFormat.format(new Date(check.checkedAt))} UTC`,
   };
 }
@@ -66,9 +67,14 @@ export function Hero() {
         <a href="#check" className="display text-[1.125rem] no-underline" translate="no">
           Vouch
         </a>
-        <a href="https://github.com/Oduwal/Vouch" className="underline-offset-4 hover:underline">
-          GitHub
-        </a>
+        <nav aria-label="Main" className="flex gap-5">
+          <Link href="/claims" className="underline-offset-4 hover:underline">
+            Bonded calls
+          </Link>
+          <a href="https://github.com/Oduwal/Vouch" className="underline-offset-4 hover:underline">
+            GitHub
+          </a>
+        </nav>
       </header>
 
       <div className="flex flex-1 flex-col items-center justify-center gap-[clamp(1.25rem,3svh,2rem)]">
@@ -138,7 +144,7 @@ export function Hero() {
               {status === "loading" ? "Checking…" : "Print ticket"}
             </button>
           </form>
-          <p className="order-3 text-muted">Reads NEAR mainnet live</p>
+          <p className="order-3 text-muted">Reads NEAR live</p>
         </div>
         <p id="check-error" role="status" className="min-h-[1.45em] text-center text-[0.9375rem]">
           {status === "error" ? error : ""}
