@@ -156,7 +156,7 @@ fn only_the_judge_rules() {
     as_(CHALLENGER, near(1), 5);
     c.challenge(U64(0), "evidence".into());
     as_(CHALLENGER, near(0), 6);
-    c.submit_ruling(U64(0), ruling(Side::Challenger));
+    c.submit_ruling(U64(0), ruling(Side::Challenger), None);
 }
 
 #[test]

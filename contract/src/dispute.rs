@@ -6,6 +6,7 @@ use crate::{Challenge, Contract, ContractExt, Ruling, RulingInput, Status, emit}
 
 const MAX_EVIDENCE_LEN: usize = 1000;
 const MAX_SUMMARY_LEN: usize = 1000;
+const MAX_PROOF_LEN: usize = 32 * 1024;
 /// Gas set aside for `on_ruling`. Its timeout path sends one refund.
 const RULING_GAS: Gas = Gas::from_tgas(20);
 
@@ -58,10 +59,18 @@ impl Contract {
     }
 
     /// The judge answers a paused challenge. This resumes the yield, and `on_ruling` records it.
-    pub fn submit_ruling(&mut self, claim_id: U64, ruling: RulingInput) {
+    ///
+    /// `proof` is not stored. It stays in this transaction's arguments, so anyone can read the exact
+    /// model request, response, signature and attestation checks behind the ruling, and
+    /// `ruling.attestation` holds its hash.
+    pub fn submit_ruling(&mut self, claim_id: U64, ruling: RulingInput, proof: Option<String>) {
         require!(
             env::predecessor_account_id() == self.config.judge,
             "Only the judge can rule"
+        );
+        require!(
+            proof.as_ref().is_none_or(|p| p.len() <= MAX_PROOF_LEN),
+            "Proof is longer than 32 KB"
         );
         require!(
             !ruling.summary.trim().is_empty() && ruling.summary.len() <= MAX_SUMMARY_LEN,
