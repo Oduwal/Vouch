@@ -13,11 +13,15 @@ import { askJudge, type ModelEndpoint } from "../src/lib/judge/ruling";
 import { checkAccount } from "../src/lib/signals";
 import { CONTRACT_ID, latestClaims, view, type Claim } from "../src/lib/vouch";
 
-const MODEL = process.env.TEST_JUDGE_MODEL ?? "gemini-3.5-flash";
+// Tried in turn when one is overloaded. The ruling records whichever model answered.
+const MODELS = process.env.TEST_JUDGE_MODEL
+  ? [process.env.TEST_JUDGE_MODEL]
+  : ["gemini-3.5-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite"];
 const WATCH_MS = 60 * 60_000;
 const POLL_MS = 5_000;
-const MAX_ATTEMPTS = 4;
-const RETRY_MS = 15_000;
+// The contract only waits about 2 minutes, and the ruling's transaction needs some of that.
+const ASK_BUDGET_MS = 80_000;
+const RETRY_MS = 3_000;
 
 const key = process.env.GEMINI_API_KEY?.match(/[\w.-]+/)?.[0];
 if (!key) throw new Error("GEMINI_API_KEY is not set");
@@ -33,13 +37,16 @@ const log = (line: string) => console.log(`${new Date().toISOString().slice(11, 
 
 async function ask(claim: Claim) {
   const facts = await checkAccount(claim.subject).catch(() => null);
-  // A busy model usually clears in seconds, and the contract only waits about 2 minutes.
-  for (let attempt = 1; ; attempt++) {
+  const until = Date.now() + ASK_BUDGET_MS;
+  for (let attempt = 0; ; attempt++) {
+    const model = MODELS[attempt % MODELS.length];
     try {
-      return await askJudge(MODEL, claim, facts, GEMINI);
+      return { ...(await askJudge(model, claim, facts, GEMINI)), model };
     } catch (e) {
-      if (attempt === MAX_ATTEMPTS || !(e as Error).message.startsWith("Model call failed: 503")) throw e;
-      log(`${MODEL} is busy, trying again in ${RETRY_MS / 1000}s`);
+      const { message, name } = e as Error;
+      const busy = message.startsWith("Model call failed: 503") || name === "TimeoutError";
+      if (!busy || Date.now() > until) throw e;
+      log(`${model} is busy, trying the next model`);
       await new Promise((r) => setTimeout(r, RETRY_MS));
     }
   }
@@ -51,19 +58,21 @@ async function dryRun() {
   const evidence = "This call is wrong: the account has a long clean history and I have paid it safely many times.";
   const answer = await ask({ ...claim, challenge: { ...claim.challenge, evidence } as Claim["challenge"] });
   log(`claim ${claim.id} (${claim.verdict} on ${claim.subject}), stand-in evidence, no transaction sent`);
+  log(`model: ${answer.model}`);
   log(`winner: ${answer.winner}`);
   log(`summary: ${answer.summary}`);
 }
 
 async function rule(claim: Claim) {
-  log(`claim ${claim.id}: asking ${MODEL}`);
+  log(`claim ${claim.id}: asking the model`);
   const answer = await ask(claim);
+  log(`claim ${claim.id}: ${answer.model} answered`);
   // The ruling's record of what happened. It holds no key: the request body has only the case file.
   const proof = JSON.stringify({
     version: 1,
     mode: "unverified-test",
     claim_id: claim.id,
-    model: MODEL,
+    model: answer.model,
     request: answer.requestBody,
     response: answer.responseBody,
   });
@@ -72,7 +81,7 @@ async function rule(claim: Claim) {
     methodName: "submit_ruling",
     args: {
       claim_id: claim.id,
-      ruling: { winner: answer.winner, summary: answer.summary, model: MODEL, attestation: `unverified:sha256:${sha256(proof)}` },
+      ruling: { winner: answer.winner, summary: answer.summary, model: answer.model, attestation: `unverified:sha256:${sha256(proof)}` },
       proof,
     },
     gas: teraToGas("100"),
