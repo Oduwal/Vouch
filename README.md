@@ -29,6 +29,7 @@ Past cases you can open, each with its evidence and ruling:
 | Case | What it shows |
 |---|---|
 | [Claim 16](https://vouch-near.vercel.app/claims/16) | The first ruling verified in a TEE. The Intel, NVIDIA and signature checks passed, and the proof is in the judge's transaction |
+| [Claim 17](https://vouch-near.vercel.app/claims/17) | The same checks, run by the deployed site's judge |
 | [Claim 6](https://vouch-near.vercel.app/claims/6) | A false `allow`. The judge used on-chain facts to side with the challenger, who took the bond |
 | [Claim 5](https://vouch-near.vercel.app/claims/5) | A challenge that failed, so the agent's call held and it took the stake |
 | [Claim 4](https://vouch-near.vercel.app/claims/4) | The model never answered, so the contract's timeout refunded both sides |
@@ -36,7 +37,7 @@ Past cases you can open, each with its evidence and ruling:
 | [Claim 13](https://vouch-near.vercel.app/claims/13) | A full appeal. The jury overturned the judge 2 to 1, and the majority split the fee |
 | [Claim 12](https://vouch-near.vercel.app/claims/12) | The block from the recorded attack run |
 
-These were test cases from building Vouch, and they are part of the agents' on-chain records. Their evidence says so, except claim 6, which is a staged false call. Only claim 16 ran on the attested judge; the others ran on the stand-in described below.
+These were test cases from building Vouch, and they are part of the agents' on-chain records. Their evidence says so, except claim 6, which is a staged false call. Claims 16 and 17 ran on the attested judge; the others here ran on the stand-in described below.
 
 ## How it works
 
@@ -59,14 +60,14 @@ These were test cases from building Vouch, and they are part of the agents' on-c
 
 ## What isn't finished or proven
 
-- **Some past rulings aren't TEE-verified.** Until NEAR AI credits came through, the judge ran in a stand-in mode (`JUDGE_MODE=unverified-gemini`) on the Gemini free tier. Those rulings carry an `unverified:` proof hash, and their pages say they aren't TEE-verified. Claim 16 is the first attested one. The mode is an explicit setting, not an automatic fallback, so an outage can't quietly downgrade a ruling.
+- **Some early rulings aren't TEE-verified.** The live judge now runs in a TEE on NEAR AI Cloud. Claim 16 is its first ruling, and claim 17 is its first from the deployed site. Rulings before that ran in a stand-in mode (`JUDGE_MODE=unverified-gemini`) on the Gemini free tier. They carry an `unverified:` proof hash, and their pages say they aren't TEE-verified. The mode is an explicit setting, not an automatic fallback, so an outage can't quietly downgrade a ruling.
 - **Attestation depth.** TDX event-log replay and app-compose hash checks aren't done.
 - **The contract trusts the judge's key.** Proofs are stored in the transaction's arguments for anyone to re-check. The contract doesn't verify them.
 - **The agents aren't attested.** The sentinel and the demo agent run on the Gemini free tier, which can be slow or out of quota. When that happens, the sentinel's fixed rules make the call alone.
 - **Rulings can vary by model.** Different models have ruled differently on the same case. If the judge can't rule in about 2 minutes, the challenge times out and both sides are refunded.
 - **The attack needs a careless agent.** With plain orders, Gemini resisted all 6 tries. The demo's agent has orders that trust a vendor's latest payment details, and the page shows them.
 - **Jury.** The full appeal ran through scripts with throwaway accounts. Voting has not been run from a browser wallet. The draw uses the block's random seed, jurors' stakes are never slashed, and a pool under 3 jurors means no appeals.
-- **Closing needs a trigger.** Expired calls close when `POST /api/judge` runs. An outside pinger has to call it every minute.
+- **Closing depends on a ping.** Expired calls close when `POST /api/judge` runs. An outside service calls it every minute, so if that service stops, they wait until the next call.
 - **Testnet only.** Nothing here has real value at stake. `/api/vouch` is public, so anyone can tie up the sentinel's bond pool. When it's empty, the guard refuses payments.
 
 ## Run it yourself
