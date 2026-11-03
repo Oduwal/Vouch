@@ -20,6 +20,21 @@
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* The same two colors, swapped. Tickets and invoices flip to burgundy so they still stand off the page. */
+:root[data-theme="light"] {
+  --bg: #ffe8f4;
+  --deep: #ffd6eb;
+  --surface: #fff5fa;
+  --ink: #3d0012;
+  --muted: #7a2a4c;
+  --accent: #3d0012;
+  --accent-ink: #ffe8f4;
+  --lit: #4d0519;
+  --lit-ink: #ffe8f4;
+  --lit-muted: #f0b4d4;
+  color-scheme: light;
+}
+
 @theme inline {
   --color-bg: var(--bg);
   --color-deep: var(--deep);

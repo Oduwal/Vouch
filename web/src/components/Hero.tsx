@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Check } from "../lib/signals";
+import { ThemeToggle } from "./ThemeToggle";
 import { Ticket, sampleTickets, type TicketData } from "./Ticket";
 
 const HOLD_MS = 7100;
@@ -67,7 +68,7 @@ export function Hero() {
         <a href="#check" className="display text-[1.125rem] no-underline" translate="no">
           Vouch
         </a>
-        <nav aria-label="Main" className="flex gap-5">
+        <nav aria-label="Main" className="flex items-center gap-4 sm:gap-5">
           <Link href="/claims" className="underline-offset-4 hover:underline">
             Calls
           </Link>
@@ -77,6 +78,7 @@ export function Hero() {
           <a href="https://github.com/Oduwal/Vouch" className="underline-offset-4 hover:underline">
             GitHub
           </a>
+          <ThemeToggle className="-mr-2.5" />
         </nav>
       </header>
 

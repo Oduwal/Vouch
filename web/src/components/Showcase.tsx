@@ -45,7 +45,7 @@ human      not asked: block needs no approval`}
         <p className="font-medium">Challenge call 417 on new-dex-router.near</p>
         <div>
           <p className={lit ? "text-lit-muted" : ""}>Evidence</p>
-          <p className={`mt-1 p-3 ${lit ? "bg-white/60" : "bg-bg"}`}>Owner key minted 9M tokens to itself at block 222,481,077.</p>
+          <p className={`mt-1 p-3 ${lit ? "bg-lit-ink/10" : "bg-bg"}`}>Owner key minted 9M tokens to itself at block 222,481,077.</p>
         </div>
         <div className="flex items-baseline justify-between tabular-nums">
           <span className={lit ? "text-lit-muted" : ""}>Counter-stake</span>

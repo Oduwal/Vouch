@@ -86,7 +86,7 @@ export const sampleTickets: TicketData[] = [
       { level: "warn", text: "1 full-access key can redeploy the code" },
     ],
     bond: "Bond 5 NEAR",
-    note: "Open to challenge 6d 23h",
+    note: "Open to challenge 23h",
     sample: true,
   },
   {
@@ -99,7 +99,7 @@ export const sampleTickets: TicketData[] = [
       { level: "allow", text: "Account has existed for 2 years" },
     ],
     bond: "Bond 2 NEAR",
-    note: "Open to challenge 4d 11h",
+    note: "Open to challenge 11h",
     sample: true,
   },
   {
@@ -112,7 +112,7 @@ export const sampleTickets: TicketData[] = [
       { level: "allow", text: "Code last changed April 2021" },
     ],
     bond: "Bond 1 NEAR",
-    note: "Open to challenge 2d 05h",
+    note: "Open to challenge 5h",
     sample: true,
   },
 ];

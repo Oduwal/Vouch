@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useWallet } from "../../lib/wallet";
+import { ThemeToggle } from "../ThemeToggle";
 
 export function TopBar() {
   const { accountId, connect, disconnect } = useWallet();
@@ -48,6 +49,7 @@ export function TopBar() {
               {accountId}
             </span>
           )}
+          <ThemeToggle />
           <button
             type="button"
             onClick={toggle}
