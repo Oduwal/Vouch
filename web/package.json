@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "demo:attack": "tsx --env-file-if-exists=../../.env scripts/attack-demo.ts"
+    "demo:attack": "tsx --env-file-if-exists=../../.env scripts/attack-demo.ts",
+    "judge:test": "tsx --env-file-if-exists=../../.env scripts/test-judge.ts"
   },
   "dependencies": {
     "@hot-labs/near-connect": "0.12.0",

@@ -36,7 +36,15 @@ export type SignatureProof = {
   signatureKind: string;
 };
 
-export async function askJudge(model: string, claim: Claim, facts: Check | null): Promise<Answer> {
+export type ModelEndpoint = { url: string; headers: () => Record<string, string>; maxTokens: number };
+
+const NEAR_AI: ModelEndpoint = {
+  url: `${NEARAI_API}/chat/completions`,
+  headers: () => ({ ...nearAiHeaders(), "Accept-Encoding": "identity" }),
+  maxTokens: 600,
+};
+
+export async function askJudge(model: string, claim: Claim, facts: Check | null, endpoint = NEAR_AI): Promise<Answer> {
   const caseFile = {
     claim: {
       account: claim.subject,
@@ -58,12 +66,12 @@ export async function askJudge(model: string, claim: Claim, facts: Check | null)
       { role: "user", content: `Case file:\n${JSON.stringify(caseFile, null, 2)}` },
     ],
     temperature: 0,
-    max_tokens: 600,
+    max_tokens: endpoint.maxTokens,
   });
 
-  const res = await fetch(`${NEARAI_API}/chat/completions`, {
+  const res = await fetch(endpoint.url, {
     method: "POST",
-    headers: { ...nearAiHeaders(), "Content-Type": "application/json", "Accept-Encoding": "identity" },
+    headers: { ...endpoint.headers(), "Content-Type": "application/json" },
     body: requestBody,
     signal: AbortSignal.timeout(40_000),
   });

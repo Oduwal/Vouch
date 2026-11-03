@@ -13,7 +13,7 @@ export type Outcome =
   | { claimId: string; ruled: true; winner: Side; summary: string; attestation: string; transaction: string }
   | { claimId: string; ruled: false; error: string };
 
-function judgeAccount() {
+export function judgeAccount() {
   const id = process.env.JUDGE_ACCOUNT_ID;
   const key = process.env.JUDGE_PRIVATE_KEY as KeyPairString | undefined;
   if (!id || !key) throw new Error("JUDGE_ACCOUNT_ID and JUDGE_PRIVATE_KEY must be set");
