@@ -32,6 +32,12 @@ export function TopBar() {
           <Link href="/jury" className="py-2 no-underline hover:underline">
             Jury
           </Link>
+          <Link href="/agents" className="py-2 no-underline hover:underline">
+            Agents
+          </Link>
+          <Link href="/attack" className="py-2 no-underline hover:underline">
+            Attack demo
+          </Link>
           <Link href="/#check" className="py-2 no-underline hover:underline max-sm:hidden">
             Check an account
           </Link>

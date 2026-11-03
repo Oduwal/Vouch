@@ -153,6 +153,9 @@ export async function checkAccount(account: string): Promise<Check> {
     else if (age < 30 * DAY) reasons.push({ level: "warn", text: `${what} is only ${count(Math.floor(age / DAY), "day")} old` });
     else if (age < 365 * DAY) reasons.push({ level: "allow", text: `${what} has existed for ${count(Math.floor(age / (30 * DAY)), "month")}` });
     else reasons.push({ level: "allow", text: `${what} has existed for ${count(Math.floor(age / (365 * DAY)), "year")}` });
+  } else {
+    // A flaky indexer must not make an account look safe: unknown age is a reason for care.
+    reasons.push({ level: "warn", text: "Couldn't read how old this account is" });
   }
 
   if (isContract) {

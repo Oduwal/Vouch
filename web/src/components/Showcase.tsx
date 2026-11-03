@@ -57,7 +57,7 @@ human      not asked: block needs no approval`}
   },
   {
     name: "The ruling",
-    lines: ["An AI judge running in a TEE rules, with an attestation anyone can verify. The loser can appeal to a staked jury.", "Sample ruling."],
+    lines: ["An AI judge rules, and the ruling shows whether its TEE attestation checked out. The loser can appeal to a staked jury.", "Sample ruling."],
     width: "w-[min(86vw,24rem)]",
     render: (lit) => (
       <Frame lit={lit} className="space-y-3 text-[0.9375rem]">
@@ -68,7 +68,7 @@ human      not asked: block needs no approval`}
             ["Bond moved", "2 NEAR to challenger"],
             ["Model", "Ran in a TEE"],
             ["Attestation", "Verified"],
-            ["Appeal window", "48 hours"],
+            ["Appeal window", "10 minutes"],
           ].map(([k, v]) => (
             <div key={k} className="flex justify-between gap-4">
               <dt className={lit ? "text-lit-muted" : ""}>{k}</dt>

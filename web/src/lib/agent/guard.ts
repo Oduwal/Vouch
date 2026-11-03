@@ -5,7 +5,7 @@
 
 import { nearToYocto, yoctoToNear, type Account } from "near-api-js";
 import { isAccountId } from "../signals";
-import type { Claim } from "../vouch";
+import { parseNear, type Claim } from "../vouch";
 import type { Vouched } from "./sentinel";
 
 export type Payment = { to: string; amountNear: string; memo?: string };
@@ -19,6 +19,8 @@ export type GuardOptions = {
   vouch: (account: string) => Promise<Vouched>;
   // Asked only on "warn". Anything but an explicit yes declines.
   askHuman: (payment: Payment, claim: Claim) => Promise<boolean>;
+  // The most one payment may send, whatever the model asks for.
+  limitNear?: string;
   log?: (line: string) => void;
 };
 
@@ -28,6 +30,16 @@ export async function guardedPay(payer: Account, payment: Payment, options: Guar
   if (!isAccountId(to)) {
     log(`refused: "${payment.to}" is not a NEAR account name`);
     return { action: "refused", payment, claim: null, reason: "Not a NEAR account name" };
+  }
+  const amount = parseNear(payment.amountNear);
+  if (!amount) {
+    log(`refused: "${payment.amountNear}" is not an amount to pay`);
+    return { action: "refused", payment, claim: null, reason: "Not an amount to pay" };
+  }
+  const limit = options.limitNear ? parseNear(options.limitNear) : null;
+  if (limit && amount > limit) {
+    log(`refused: ${payment.amountNear} NEAR is over the ${options.limitNear} NEAR limit`);
+    return { action: "refused", payment, claim: null, reason: `Over the ${options.limitNear} NEAR limit on one payment` };
   }
 
   log(`checking ${to} with Vouch before paying ${payment.amountNear} NEAR`);

@@ -9,11 +9,11 @@ const steps = [
   },
   {
     line: "We call it. We post bond.",
-    body: "Allow, warn or block, with reasons. A Vouch agent locks NEAR behind the call for seven days.",
+    body: "Allow, warn or block, with reasons. A Vouch agent locks NEAR behind the call for 24 hours.",
   },
   {
     line: "Wrong? Bond is yours.",
-    body: "Challenge with evidence. An AI judge in a TEE rules while the contract waits; a staked jury hears appeals.",
+    body: "Challenge with evidence. An AI judge rules while the contract waits; a staked jury hears appeals.",
   },
 ];
 

@@ -115,7 +115,7 @@ function Outcome({ claim, config, jurors, now, onDone }: { claim: Claim; config:
             <div className="flex flex-wrap gap-x-3">
               <dt className="text-muted">Checked before ruling</dt>
               {ruling.attestation.startsWith("unverified:") ? (
-                <dd className="font-medium">Nothing. This is a test ruling from a model outside a TEE, so it isn&apos;t TEE-verified.</dd>
+                <dd className="font-medium">Nothing. A stand-in model outside a TEE made this ruling, so it isn&apos;t TEE-verified.</dd>
               ) : (
                 <dd>Intel TDX quote, NVIDIA GPU report, signature on this exact answer</dd>
               )}

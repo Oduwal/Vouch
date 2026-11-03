@@ -3,8 +3,9 @@
 // cannot move its NEAR.
 
 import { Account, JsonRpcProvider, nearToYocto, teraToGas, type KeyPairString } from "near-api-js";
-import { checkAccount, type Check, type Level } from "../signals";
+import { checkAccount, type Check } from "../signals";
 import { CONTRACT_ID, TESTNET_RPC, view, type Claim } from "../vouch";
+import { assess } from "./assess";
 
 export const AGENT_BOND_NEAR = (process.env.AGENT_BOND_NEAR ?? "0.5") as `${number}`;
 
@@ -14,9 +15,9 @@ export type Vouched = {
   check: Check | null;
   posted: boolean;
   transaction: string | null;
+  // The model that made a new claim's call; null when the rules made it or a claim was reused.
+  decidedBy: string | null;
 };
-
-const RANK: Record<Level, number> = { block: 0, warn: 1, allow: 2 };
 
 export function sentinelId() {
   const id = process.env.SENTINEL_ACCOUNT_ID;
@@ -40,21 +41,16 @@ function isLive(claim: Claim) {
 export async function vouchFor(subject: string): Promise<Vouched> {
   const existing = await view<Claim | null>("get_verdict", { subject });
   if (existing && existing.agent === sentinelId() && isLive(existing)) {
-    return { claim: existing, check: null, posted: false, transaction: null };
+    return { claim: existing, check: null, posted: false, transaction: null, decidedBy: null };
   }
 
   const check = await checkAccount(subject);
-  // The reasons that drove the call go first, so the contract's limit of five never cuts them.
-  const reasons = [...check.reasons]
-    .sort((a, b) => RANK[a.level] - RANK[b.level])
-    .slice(0, 5)
-    .map((r) => r.text.slice(0, 280));
-  if (!reasons.length) reasons.push("No warning signs in the account's age, keys or code history");
+  const { verdict, reasons, decidedBy } = await assess(check);
 
   const tx = await sentinel().callFunctionRaw({
     contractId: CONTRACT_ID,
     methodName: "post_claim",
-    args: { subject, verdict: check.verdict, reasons, bond: nearToYocto(AGENT_BOND_NEAR).toString() },
+    args: { subject, verdict, reasons, bond: nearToYocto(AGENT_BOND_NEAR).toString() },
     gas: teraToGas("30"),
   });
   const status = tx.status as { SuccessValue?: string; Failure?: unknown };
@@ -63,5 +59,5 @@ export async function vouchFor(subject: string): Promise<Vouched> {
 
   const claim = await view<Claim | null>("get_claim", { claim_id: claimId });
   if (!claim) throw new Error(`Claim ${claimId} was posted but cannot be read back`);
-  return { claim, check, posted: true, transaction: tx.transaction.hash };
+  return { claim, check, posted: true, transaction: tx.transaction.hash, decidedBy };
 }

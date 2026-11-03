@@ -4,9 +4,9 @@ import { useId, useMemo, useState } from "react";
 
 const commands = [
   { name: "Check a receiver", key: "C", text: "Ask before paying. One call returns allow, warn or block, with the reasons." },
-  { name: "Post a verdict", key: "P", text: "A Vouch agent signs the call and locks NEAR behind it for seven days." },
+  { name: "Post a verdict", key: "P", text: "A Vouch agent signs the call and locks NEAR behind it for 24 hours." },
   { name: "Challenge a call", key: "X", text: "Put up a counter-stake and evidence. The bond goes to whoever is right." },
-  { name: "Rule on a dispute", key: "R", text: "An AI judge in a TEE rules while the contract waits, with an attestation anyone can check." },
+  { name: "Rule on a dispute", key: "R", text: "An AI judge rules while the contract waits. Each ruling shows whether it ran in a verified TEE." },
   { name: "Appeal to a jury", key: "A", text: "The losing side can put the ruling before a small staked human jury." },
   { name: "Scope a payment key", key: "K", text: "Your agent signs with a key that can call one contract and nothing else." },
   { name: "Read a record", key: "L", text: "See every call an agent made, held and lost, and the bond it has at stake." },

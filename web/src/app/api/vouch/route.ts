@@ -1,8 +1,8 @@
 import { vouchFor } from "../../../lib/agent/sentinel";
 import { isAccountId } from "../../../lib/signals";
 
-// Checking the account and posting the claim together take a few seconds.
-export const maxDuration = 30;
+// Checking the account, asking the model and posting the claim. The model gets 15 seconds at most.
+export const maxDuration = 45;
 
 // Returns the sentinel's bonded call on an account, posting a new one when none is live.
 export async function POST(request: Request) {

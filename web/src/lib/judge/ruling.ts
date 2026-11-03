@@ -56,7 +56,7 @@ export async function askJudge(model: string, claim: Claim, facts: Check | null,
     challenger_evidence: claim.challenge?.evidence ?? "",
     chain_facts: facts
       ? { ...facts.facts, signals: facts.reasons.map((r) => `${r.level}: ${r.text}`), read_at: facts.checkedAt }
-      : "Unavailable: the mainnet RPC did not answer",
+      : "Unavailable: the RPC did not answer",
   };
   // This exact string is sent and hashed, so it must not be rebuilt later.
   const requestBody = JSON.stringify({

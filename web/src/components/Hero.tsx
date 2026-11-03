@@ -69,7 +69,10 @@ export function Hero() {
         </a>
         <nav aria-label="Main" className="flex gap-5">
           <Link href="/claims" className="underline-offset-4 hover:underline">
-            Bonded calls
+            Calls
+          </Link>
+          <Link href="/attack" className="underline-offset-4 hover:underline">
+            Attack demo
           </Link>
           <a href="https://github.com/Oduwal/Vouch" className="underline-offset-4 hover:underline">
             GitHub
