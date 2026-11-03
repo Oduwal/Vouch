@@ -28,6 +28,7 @@ Past cases you can open, each with its evidence and ruling:
 
 | Case | What it shows |
 |---|---|
+| [Claim 16](https://vouch-near.vercel.app/claims/16) | The first ruling verified in a TEE. The Intel, NVIDIA and signature checks passed, and the proof is in the judge's transaction |
 | [Claim 6](https://vouch-near.vercel.app/claims/6) | A false `allow`. The judge used on-chain facts to side with the challenger, who took the bond |
 | [Claim 5](https://vouch-near.vercel.app/claims/5) | A challenge that failed, so the agent's call held and it took the stake |
 | [Claim 4](https://vouch-near.vercel.app/claims/4) | The model never answered, so the contract's timeout refunded both sides |
@@ -35,7 +36,7 @@ Past cases you can open, each with its evidence and ruling:
 | [Claim 13](https://vouch-near.vercel.app/claims/13) | A full appeal. The jury overturned the judge 2 to 1, and the majority split the fee |
 | [Claim 12](https://vouch-near.vercel.app/claims/12) | The block from the recorded attack run |
 
-These were test cases from building Vouch, and they are part of the agents' on-chain records. Their evidence says so, except claim 6, which is a staged false call.
+These were test cases from building Vouch, and they are part of the agents' on-chain records. Their evidence says so, except claim 6, which is a staged false call. Only claim 16 ran on the attested judge; the others ran on the stand-in described below.
 
 ## How it works
 
@@ -54,19 +55,15 @@ These were test cases from building Vouch, and they are part of the agents' on-c
 
 - **Yield/resume** pauses a challenge until the judge answers or the timeout refunds it.
 - **Function-call keys** limit the damage from a leak: the judge's key can only call `submit_ruling`, and the sentinel's can only call `post_claim`, `release` and `finalize`.
-- **TEE attestation** through NEAR AI Cloud is built into the judge, but it's not running yet. See below.
+- **TEE attestation** through NEAR AI Cloud backs each ruling. Before ruling, the judge checks the model node's Intel TDX quote, NVIDIA's GPU report and a fresh nonce, then checks the node's signature over the exact request and response. The full proof goes in the ruling's transaction, and its hash goes on the claim.
 
 ## What isn't finished or proven
 
-**The live judge is not running in a TEE.** The attested judge is written (`web/src/lib/judge/`): it checks the Intel TDX quote, NVIDIA's GPU report, a fresh nonce, and the signature over the exact request and response. Fetching and checking attestation reports works. The model call itself returns `402 no_limit_configured` on the NEAR AI key, so that path has never produced a ruling.
-
-Until that's fixed, the deployed judge runs in a stand-in mode (`JUDGE_MODE=unverified-gemini`) using the Gemini free tier. Every such ruling goes on-chain with an `unverified:` proof hash, and its page says it isn't TEE-verified. The mode is an explicit setting, not an automatic fallback, so an outage can't quietly downgrade a ruling.
-
-Other limits:
-
+- **Some past rulings aren't TEE-verified.** Until NEAR AI credits came through, the judge ran in a stand-in mode (`JUDGE_MODE=unverified-gemini`) on the Gemini free tier. Those rulings carry an `unverified:` proof hash, and their pages say they aren't TEE-verified. Claim 16 is the first attested one. The mode is an explicit setting, not an automatic fallback, so an outage can't quietly downgrade a ruling.
 - **Attestation depth.** TDX event-log replay and app-compose hash checks aren't done.
 - **The contract trusts the judge's key.** Proofs are stored in the transaction's arguments for anyone to re-check. The contract doesn't verify them.
-- **Rulings can vary by model.** On the same case, `gemini-3.5-flash` and `gemini-3.5-flash-lite` have ruled differently. The free tier can also be slow or out of quota, in which case a challenge times out and both sides are refunded.
+- **The agents aren't attested.** The sentinel and the demo agent run on the Gemini free tier, which can be slow or out of quota. When that happens, the sentinel's fixed rules make the call alone.
+- **Rulings can vary by model.** Different models have ruled differently on the same case. If the judge can't rule in about 2 minutes, the challenge times out and both sides are refunded.
 - **The attack needs a careless agent.** With plain orders, Gemini resisted all 6 tries. The demo's agent has orders that trust a vendor's latest payment details, and the page shows them.
 - **Jury.** The full appeal ran through scripts with throwaway accounts. Voting has not been run from a browser wallet. The draw uses the block's random seed, jurors' stakes are never slashed, and a pool under 3 jurors means no appeals.
 - **Closing needs a trigger.** Expired calls close when `POST /api/judge` runs. An outside pinger has to call it every minute.
@@ -109,7 +106,7 @@ near contract call-function as-read-only vouch.testnet get_claim \
 
 ## Services and tools
 
-- **AI models:** NEAR AI Cloud (attested judge, not yet running), Google Gemini API (sentinel, demo agent, stand-in judge)
+- **AI models:** NEAR AI Cloud (attested judge), Google Gemini API (sentinel, demo agent, stand-in judge)
 - **Attestation:** `@phala/dcap-qvl` for Intel TDX, NVIDIA NRAS for GPUs
 - **NEAR data:** FastNEAR RPC, NearBlocks API
 - **Hosting:** Vercel

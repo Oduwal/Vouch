@@ -41,7 +41,8 @@ export type ModelEndpoint = { url: string; headers: () => Record<string, string>
 const NEAR_AI: ModelEndpoint = {
   url: `${NEARAI_API}/chat/completions`,
   headers: () => ({ ...nearAiHeaders(), "Accept-Encoding": "identity" }),
-  maxTokens: 600,
+  // The model's thinking counts toward this, and it takes hundreds of tokens even on a small case.
+  maxTokens: 4000,
 };
 
 export async function askJudge(model: string, claim: Claim, facts: Check | null, endpoint = NEAR_AI): Promise<Answer> {
