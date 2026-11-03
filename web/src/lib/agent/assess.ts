@@ -67,7 +67,8 @@ export async function assess(check: Check): Promise<Assessment> {
   return {
     verdict,
     reasons: [
-      ...[...floor, ...reasons].slice(0, MAX_MODEL_REASONS).map(trimReason),
+      // The model often repeats a rule's reason, differing only in its final full stop.
+      ...[...new Set([...floor, ...reasons].map((r) => trimReason(r).replace(/\.$/, "")))].slice(0, MAX_MODEL_REASONS),
       raised ? `Call by ${answer.model}, raised to ${verdict} by the fixed rules` : `Call by ${answer.model}, checked against fixed rules`,
     ],
     decidedBy: answer.model,
