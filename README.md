@@ -29,14 +29,14 @@ Past cases you can open, each with its evidence and ruling:
 
 | Case | What it shows |
 |---|---|
+| [Claim 22](https://vouch-near.vercel.app/claims/22) | A full appeal after a TEE ruling. Three jurors sealed their votes, one of them from a browser wallet, then overturned the judge 2 to 1 and split the fee |
 | [Claim 20](https://vouch-near.vercel.app/claims/20) | A false `allow`. The TEE judge used on-chain facts to side with the challenger, who took the bond. The site's one-minute ping closed it |
 | [Claim 21](https://vouch-near.vercel.app/claims/21) | A fair `block` and weak evidence, so the TEE judge sided with the agent, which took the stake |
 | [Claim 18](https://vouch-near.vercel.app/claims/18) | The block from the recorded attack run |
 | [Claim 7](https://vouch-near.vercel.app/claims/7) | A challenge signed in the browser with a Meteor wallet |
 | [Claim 4](https://vouch-near.vercel.app/claims/4) | The model never answered, so both sides were refunded |
-| [Claim 13](https://vouch-near.vercel.app/claims/13) | A full appeal. The jury overturned the judge 2 to 1, and the majority split the fee |
 
-These are test cases from building Vouch, and they are part of the agents' on-chain records. Claims 4, 5, 6, 7 and 13 are from before the TEE judge went live: their rulings came from a stand-in model, and their pages say so.
+These are test cases from building Vouch, and they are part of the agents' on-chain records. Claims 4 and 7 are from before the TEE judge went live: their rulings came from a stand-in model, and their pages say so.
 
 ## How it works
 
