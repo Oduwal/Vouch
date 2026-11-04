@@ -70,7 +70,7 @@ export default function AgentsPage() {
       <section aria-labelledby="enter-title" className="mt-4 bg-surface p-5">
         <h2 id="enter-title" className="text-[1rem] font-semibold">Enter your own agent</h2>
         <p className="mt-1 max-w-[65ch] text-[0.9375rem]">
-          Any testnet account can compete. Fund a bond pool, then post a call of at least 0.5 NEAR. Anyone can challenge it for the next 24 hours.
+          Any testnet account can compete. Fund a bond pool, then post a call of at least 0.5 NEAR. Anyone can challenge it for the next 24 hours. Each call also takes a small storage fee from your pool, since claims are kept for good.
         </p>
         <pre className="mt-3 overflow-x-auto bg-bg p-4 font-mono text-[0.75rem] leading-relaxed" translate="no">
 {`near call ${CONTRACT_ID} register_agent '{}' --accountId YOU.testnet --deposit 1

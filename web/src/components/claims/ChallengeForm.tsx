@@ -24,7 +24,7 @@ export function ChallengeForm({ claim, config, onFiled }: { claim: Claim; config
 
   function problem() {
     if (!evidence.trim()) return "Write down what the call got wrong, with something the judge can check.";
-    if (evidenceBytes > MAX_EVIDENCE_BYTES) return `Evidence is ${evidenceBytes - MAX_EVIDENCE_BYTES} characters over the limit.`;
+    if (evidenceBytes > MAX_EVIDENCE_BYTES) return `Evidence is ${evidenceBytes - MAX_EVIDENCE_BYTES} bytes over the limit.`;
     if (stakeYocto === null) return "Enter the stake as a NEAR amount, like 0.25.";
     if (stakeYocto < required) return `The stake must be at least ${formatNear(required)} NEAR.`;
     return "";
@@ -41,7 +41,7 @@ export function ChallengeForm({ claim, config, onFiled }: { claim: Claim; config
     setState("signing");
     try {
       if (!accountId) await connect();
-      await call("challenge", { claim_id: claim.id, evidence: evidence.trim() }, stakeYocto as bigint, CHALLENGE_TGAS);
+      await call("challenge", { claim_id: claim.id, evidence: evidence.trim() }, (stakeYocto as bigint) + BigInt(config.challenge_fee), CHALLENGE_TGAS);
       // The judge rules as soon as it hears; the one-minute ping is the backstop.
       void fetch("/api/judge", { method: "POST" }).catch(() => {});
       onFiled();
@@ -74,7 +74,7 @@ export function ChallengeForm({ claim, config, onFiled }: { claim: Claim; config
         className="mt-2 block w-full resize-y bg-bg px-3 py-2.5 text-[0.9375rem] text-ink outline outline-1 -outline-offset-1 outline-muted placeholder:text-muted focus:outline-2 focus:-outline-offset-2 focus:outline-ink"
       />
       <p id={`${id}-count`} className={`mt-1 text-right text-[0.75rem] tabular-nums ${evidenceBytes > MAX_EVIDENCE_BYTES ? "font-semibold" : "text-muted"}`}>
-        {evidenceBytes} of {MAX_EVIDENCE_BYTES}
+        {evidenceBytes} of {MAX_EVIDENCE_BYTES} bytes
       </p>
 
       <div className="mt-2 flex flex-wrap items-end gap-3">
@@ -104,7 +104,7 @@ export function ChallengeForm({ claim, config, onFiled }: { claim: Claim; config
         </button>
       </div>
       <p id={`${id}-minimum`} className="mt-2 text-[0.8125rem] text-muted">
-        At least {formatNear(required)} NEAR. Your wallet needs to be on NEAR testnet; test NEAR is free at{" "}
+        At least {formatNear(required)} NEAR, plus a {formatNear(config.challenge_fee)} NEAR storage fee that isn&apos;t refunded. Your wallet needs to be on NEAR testnet; test NEAR is free at{" "}
         <a href="https://near-faucet.io/" className="underline">near-faucet.io</a>.
       </p>
       <p role="alert" className="mt-2 min-h-[1.25rem] text-[0.875rem] font-medium">

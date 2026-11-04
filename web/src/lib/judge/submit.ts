@@ -1,6 +1,7 @@
 // Sends a ruling to the contract, signed with the judge's key that can only call submit_ruling.
 
 import { Account, JsonRpcProvider, teraToGas, type KeyPairString } from "near-api-js";
+import { withNonceRetry } from "../nonce";
 import { CONTRACT_ID, TESTNET_RPC, type Side } from "../vouch";
 
 export type Outcome =
@@ -19,12 +20,15 @@ export async function submitRuling(
   ruling: { winner: Side; summary: string; model: string; attestation: string },
   proof: string,
 ): Promise<Outcome> {
-  const tx = await judgeAccount().callFunctionRaw({
-    contractId: CONTRACT_ID,
-    methodName: "submit_ruling",
-    args: { claim_id: claimId, ruling, proof },
-    gas: teraToGas("100"),
-  });
+  const account = judgeAccount();
+  const tx = await withNonceRetry(() =>
+    account.callFunctionRaw({
+      contractId: CONTRACT_ID,
+      methodName: "submit_ruling",
+      args: { claim_id: claimId, ruling, proof },
+      gas: teraToGas("100"),
+    }),
+  );
   return {
     claimId,
     ruled: true,

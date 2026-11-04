@@ -161,7 +161,11 @@ export async function checkAccount(account: string): Promise<Check> {
   if (isContract) {
     if (fullAccessKeys === 0) reasons.push({ level: "allow", text: "Contract is locked: no key can change its code" });
     else if (fullAccessKeys) reasons.push({ level: "warn", text: `${count(fullAccessKeys, "full-access key")} can redeploy the code` });
+    // A failed read, or thousands of keys added to make it fail. Either way, not a clean bill of health.
+    else reasons.push({ level: "warn", text: "Couldn't read this contract's access keys" });
 
+    // No answer from the indexer isn't the same as no recent deploy.
+    if (!deploys) reasons.push({ level: "warn", text: "Couldn't read when this contract's code last changed" });
     if (lastDeployAt) {
       const since = now - lastDeployAt.getTime();
       if (since < DAY) reasons.push({ level: "block", text: "Contract code changed in the last 24 hours" });

@@ -3,15 +3,19 @@
 // cannot move its NEAR.
 
 import { Account, JsonRpcProvider, nearToYocto, teraToGas, type KeyPairString } from "near-api-js";
-import { checkAccount, type Check } from "../signals";
+import { withNonceRetry } from "../nonce";
+import { checkAccount, type Check, type Level } from "../signals";
 import { CONTRACT_ID, TESTNET_RPC, view, type Claim } from "../vouch";
 import { assess } from "./assess";
 
 export const AGENT_BOND_NEAR = (process.env.AGENT_BOND_NEAR ?? "0.5") as `${number}`;
 
+const STRICTNESS: Record<Level, number> = { allow: 0, warn: 1, block: 2 };
+
 export type Vouched = {
-  claim: Claim;
-  // The fresh check behind a new claim; null when an earlier live claim was reused.
+  // The bonded call, or null when none is live and this caller can't lock a new bond.
+  claim: Claim | null;
+  // What the chain says right now.
   check: Check | null;
   posted: boolean;
   transaction: string | null;
@@ -37,27 +41,34 @@ function isLive(claim: Claim) {
   return claim.status === "challenged" || claim.status === "ruled" || claim.status === "appealed";
 }
 
-// Reuses this agent's live claim on the subject instead of locking a second bond.
-export async function vouchFor(subject: string): Promise<Vouched> {
-  const existing = await view<Claim | null>("get_verdict", { subject });
-  if (existing && existing.agent === sentinelId() && isLive(existing)) {
-    return { claim: existing, check: null, posted: false, transaction: null, decidedBy: null };
-  }
+// Reuses this agent's live claim on the subject instead of locking a second bond, unless the chain has
+// since turned against it: an account can deploy bad code minutes after an allow. Only a trusted caller
+// can lock a new bond, so anyone else can't drain the pool by asking about many accounts.
+export async function vouchFor(subject: string, { mayPost = true } = {}): Promise<Vouched> {
+  const [existing, check] = await Promise.all([
+    view<Claim | null>("get_agent_verdict", { agent: sentinelId(), subject }),
+    checkAccount(subject),
+  ]);
+  const standing = existing && isLive(existing) && STRICTNESS[check.verdict] <= STRICTNESS[existing.verdict];
+  if (standing) return { claim: existing, check, posted: false, transaction: null, decidedBy: null };
+  if (!mayPost) return { claim: null, check, posted: false, transaction: null, decidedBy: null };
 
-  const check = await checkAccount(subject);
   const { verdict, reasons, decidedBy } = await assess(check);
-
-  const tx = await sentinel().callFunctionRaw({
-    contractId: CONTRACT_ID,
-    methodName: "post_claim",
-    args: { subject, verdict, reasons, bond: nearToYocto(AGENT_BOND_NEAR).toString() },
-    gas: teraToGas("30"),
-  });
+  const account = sentinel();
+  const tx = await withNonceRetry(() =>
+    account.callFunctionRaw({
+      contractId: CONTRACT_ID,
+      methodName: "post_claim",
+      args: { subject, verdict, reasons, bond: nearToYocto(AGENT_BOND_NEAR).toString() },
+      gas: teraToGas("30"),
+    }),
+  );
   const status = tx.status as { SuccessValue?: string; Failure?: unknown };
   if (status.SuccessValue === undefined) throw new Error(`post_claim failed: ${JSON.stringify(status.Failure)}`);
   const claimId: string = JSON.parse(Buffer.from(status.SuccessValue, "base64").toString("utf8"));
 
-  const claim = await view<Claim | null>("get_claim", { claim_id: claimId });
+  // Just posted, so it isn't final yet.
+  const claim = await view<Claim | null>("get_claim", { claim_id: claimId }, "optimistic");
   if (!claim) throw new Error(`Claim ${claimId} was posted but cannot be read back`);
   return { claim, check, posted: true, transaction: tx.transaction.hash, decidedBy };
 }

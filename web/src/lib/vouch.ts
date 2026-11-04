@@ -55,6 +55,16 @@ export type Config = {
   challenge_stake_pct: number;
   appeal_fee: string;
   juror_stake: string;
+  late_ruling_window: string;
+  juror_warmup: string;
+  juror_lockup: string;
+  no_show_slash_pct: number;
+  max_locked_bonds: number;
+  register_fee: string;
+  claim_fee: string;
+  challenge_fee: string;
+  appeal_storage_fee: string;
+  juror_fee: string;
 };
 
 export type Juror = {
@@ -121,12 +131,25 @@ export async function latestClaims(): Promise<Claim[]> {
   return claims.reverse();
 }
 
-// Public RPC nodes drop the odd request; one retry keeps that from failing a whole page.
-export function view<T>(method: string, args: Record<string, unknown> = {}): Promise<T> {
-  return callView<T>(method, args).catch(() => callView<T>(method, args));
+type Finality = "final" | "optimistic";
+
+// Public RPC nodes drop the odd request; one retry keeps that from failing a whole page. On the server,
+// where reads decide payments and rulings, it reads finalized state. The browser only displays, and
+// reads the newest state, so a page updates as soon as a transaction lands.
+export function view<T>(method: string, args: Record<string, unknown> = {}, finality?: Finality): Promise<T> {
+  const chosen = finality ?? (typeof window === "undefined" ? "final" : "optimistic");
+  return callView<T>(method, args, chosen).catch(() => callView<T>(method, args, chosen));
 }
 
-async function callView<T>(method: string, args: Record<string, unknown>): Promise<T> {
+// How long a config window is, in plain words.
+export function formatWindow(nanos: string) {
+  const minutes = Math.round(nanosToMs(nanos) / 60_000);
+  if (minutes < 120) return `${minutes} minutes`;
+  const hours = Math.round(minutes / 60);
+  return hours < 48 ? `${hours} hours` : `${Math.round(hours / 24)} days`;
+}
+
+async function callView<T>(method: string, args: Record<string, unknown>, finality: Finality): Promise<T> {
   const res = await fetch(TESTNET_RPC, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -136,7 +159,7 @@ async function callView<T>(method: string, args: Record<string, unknown>): Promi
       method: "query",
       params: {
         request_type: "call_function",
-        finality: "optimistic",
+        finality,
         account_id: CONTRACT_ID,
         method_name: method,
         args_base64: btoa(JSON.stringify(args)),

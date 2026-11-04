@@ -4,6 +4,7 @@
 // talk its way past the guard.
 
 import { nearToYocto, yoctoToNear, type Account } from "near-api-js";
+import { withNonceRetry } from "../nonce";
 import { isAccountId } from "../signals";
 import { parseNear, type Claim } from "../vouch";
 import type { Vouched } from "./sentinel";
@@ -53,6 +54,10 @@ export async function guardedPay(payer: Account, payment: Payment, options: Guar
     return { action: "refused", payment, claim: null, reason };
   }
   const { claim, posted, transaction } = vouched;
+  if (!claim) {
+    log("refused: no agent has a bond behind a call on this account");
+    return { action: "refused", payment, claim: null, reason: "No bonded call on this account" };
+  }
   log(
     `vouch: ${claim.verdict.toUpperCase()} by ${claim.agent}, claim #${claim.id}, ` +
       `${yoctoToNear(BigInt(claim.bond), 2)} NEAR bonded` +
@@ -69,17 +74,17 @@ export async function guardedPay(payer: Account, payment: Payment, options: Guar
     return { action: "declined", payment, claim, reason: "A human did not approve the payment" };
   }
 
-  const tx = await payer.transfer({ receiverId: to, amount: nearToYocto(payment.amountNear as `${number}`) });
+  const tx = await withNonceRetry(() => payer.transfer({ receiverId: to, amount: nearToYocto(payment.amountNear as `${number}`) }));
   log(`paid ${payment.amountNear} NEAR to ${to} in ${tx.transaction.hash}`);
   return { action: "paid", payment, claim, transaction: tx.transaction.hash };
 }
 
 // For agents that run outside this app: the deployed /api/vouch endpoint holds the sentinel key.
-export function vouchOverHttp(baseUrl: string) {
+export function vouchOverHttp(baseUrl: string, token?: string) {
   return async (account: string): Promise<Vouched> => {
     const res = await fetch(`${baseUrl.replace(/\/$/, "")}/api/vouch`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: JSON.stringify({ account }),
       signal: AbortSignal.timeout(30_000),
     });

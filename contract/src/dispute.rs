@@ -1,28 +1,31 @@
 use near_sdk::json_types::U64;
-use near_sdk::serde_json::{self, json};
-use near_sdk::{Gas, GasWeight, NearToken, Promise, PromiseError, env, near, require};
+use near_sdk::serde_json::json;
+use near_sdk::{Gas, GasWeight, NearToken, Promise, env, near, require};
 
 use crate::{Challenge, Contract, ContractExt, Ruling, RulingInput, Status, emit};
 
 const MAX_EVIDENCE_LEN: usize = 1000;
 const MAX_SUMMARY_LEN: usize = 1000;
 const MAX_PROOF_LEN: usize = 32 * 1024;
-/// Gas set aside for `on_ruling`. Its timeout path sends one refund.
+/// Gas set aside for `on_ruling`, which only records state.
 const RULING_GAS: Gas = Gas::from_tgas(20);
 
 #[near]
 impl Contract {
-    /// Dispute an open claim. The attached deposit is the counter-stake. The contract pauses in a
-    /// yield until the judge rules; if no ruling arrives in time (about 200 blocks) both sides are
-    /// refunded.
+    /// Dispute an open claim. The deposit is the counter-stake plus the storage fee. The contract
+    /// pauses in a yield until the judge rules. If that times out (about 200 blocks), the judge
+    /// still has `late_ruling_window`, so jamming it for two minutes can't get a bad call off free.
+    /// After that, both sides are refunded.
     #[payable]
     pub fn challenge(&mut self, claim_id: U64, evidence: String) {
         require!(
             !evidence.trim().is_empty() && evidence.len() <= MAX_EVIDENCE_LEN,
-            "Evidence must be 1 to 1000 characters"
+            "Evidence must be 1 to 1000 bytes"
         );
         let challenger = env::predecessor_account_id();
-        let stake = env::attached_deposit();
+        let fee = self.config.challenge_fee;
+        let deposit = env::attached_deposit();
+        let stake = deposit.saturating_sub(fee);
         let min_stake = NearToken::from_yoctonear(
             self.claim(claim_id.0).bond.as_yoctonear() / 100
                 * u128::from(self.config.challenge_stake_pct),
@@ -40,7 +43,10 @@ impl Contract {
             challenger != claim.agent,
             "An agent cannot challenge its own call"
         );
-        require!(stake >= min_stake, format!("Stake at least {min_stake}"));
+        require!(
+            stake >= min_stake,
+            format!("Stake at least {min_stake}, plus the {fee} storage fee")
+        );
 
         claim.status = Status::Challenged;
         claim.challenge = Some(Challenge {
@@ -58,7 +64,7 @@ impl Contract {
         promise.detach();
     }
 
-    /// The judge answers a paused challenge. This resumes the yield, and `on_ruling` records it.
+    /// The judge rules on a challenge, in its yield or in the late window after it times out.
     ///
     /// `proof` is not stored. It stays in this transaction's arguments, so anyone can read the exact
     /// model request, response, signature and attestation checks behind the ruling, and
@@ -74,65 +80,81 @@ impl Contract {
         );
         require!(
             !ruling.summary.trim().is_empty() && ruling.summary.len() <= MAX_SUMMARY_LEN,
-            "Summary must be 1 to 1000 characters"
+            "Summary must be 1 to 1000 bytes"
         );
         require!(
             ruling.model.len() <= 200 && ruling.attestation.len() <= 200,
             "Model and attestation are too long"
         );
-        let yield_id = *self.waiting.get(&claim_id.0).unwrap_or_else(|| {
-            env::panic_str("No challenge on this claim is waiting for a ruling")
-        });
-        let data = serde_json::to_vec(&ruling).unwrap();
-        if yield_id.resume(data).is_err() {
-            env::panic_str("The ruling window has closed");
+        if let Some(until) = self.late.get(&claim_id.0).copied() {
+            require!(
+                env::block_timestamp() < until,
+                "The judge's late window has closed"
+            );
+            self.late.remove(&claim_id.0);
+        } else {
+            let yield_id = self.waiting.remove(&claim_id.0).unwrap_or_else(|| {
+                env::panic_str("No challenge on this claim is waiting for a ruling")
+            });
+            // Only a signal: NEAR limits a resume's payload to 1024 bytes, and a ruling can be longer.
+            if yield_id.resume(vec![]).is_err() {
+                env::panic_str("The ruling window has closed");
+            }
         }
+        self.record_ruling(claim_id.0, ruling);
     }
 
-    /// Runs when the judge resumes the yield, or when it times out. It must not panic: the bond and
-    /// the counter-stake are both held until it runs.
+    /// Runs when the judge resumes the yield, or when it times out. By then a ruling has already been
+    /// recorded, so a challenge still waiting here means the yield timed out. It must not panic: the
+    /// bond and the counter-stake are both held until the case closes.
     #[private]
-    pub fn on_ruling(
-        &mut self,
-        claim_id: U64,
-        #[callback_result] ruling: Result<RulingInput, PromiseError>,
-    ) {
+    pub fn on_ruling(&mut self, claim_id: U64) {
         self.waiting.remove(&claim_id.0);
-        let now = env::block_timestamp();
-        let appeal_window = self.config.appeal_window.0;
-        let claim = self.claim_mut(claim_id.0);
-        if claim.status != Status::Challenged {
+        if self.claim(claim_id.0).status != Status::Challenged {
             return;
         }
-        match ruling {
-            Ok(r) => {
-                claim.status = Status::Ruled;
-                claim.ruling = Some(Ruling {
-                    winner: r.winner,
-                    summary: r.summary,
-                    model: r.model,
-                    attestation: r.attestation,
-                    ruled_at: U64(now),
-                    appeal_until: U64(now + appeal_window),
-                });
-                emit("claim_ruled", json!(claim));
-            }
-            Err(_) => {
-                claim.status = Status::Void;
-                let bond = claim.bond;
-                let agent_id = claim.agent.clone();
-                let challenge = claim.challenge.clone().unwrap();
-                let agent = self.agents.get_mut(&agent_id).unwrap();
-                agent.bond_locked = agent.bond_locked.saturating_sub(bond);
-                agent.bond_free = agent.bond_free.saturating_add(bond);
-                Promise::new(challenge.challenger)
-                    .transfer(challenge.stake)
-                    .detach();
-                emit(
-                    "claim_void",
-                    json!({ "claim_id": claim_id, "reason": "The judge did not rule in time" }),
-                );
-            }
-        }
+        let until = env::block_timestamp().saturating_add(self.config.late_ruling_window.0);
+        self.late.insert(claim_id.0, until);
+        emit(
+            "ruling_late",
+            json!({ "claim_id": claim_id, "until": U64(until) }),
+        );
+    }
+}
+
+impl Contract {
+    pub(crate) fn record_ruling(&mut self, id: u64, r: RulingInput) {
+        let now = env::block_timestamp();
+        let appeal_window = self.config.appeal_window.0;
+        let claim = self.claim_mut(id);
+        claim.status = Status::Ruled;
+        claim.ruling = Some(Ruling {
+            winner: r.winner,
+            summary: r.summary,
+            model: r.model,
+            attestation: r.attestation,
+            ruled_at: U64(now),
+            appeal_until: U64(now.saturating_add(appeal_window)),
+        });
+        emit("claim_ruled", json!(claim));
+    }
+
+    /// The judge never answered: refund both sides.
+    pub(crate) fn void(&mut self, id: u64) {
+        self.late.remove(&id);
+        self.active.remove(&id);
+        let claim = self.claim_mut(id);
+        claim.status = Status::Void;
+        let bond = claim.bond;
+        let agent_id = claim.agent.clone();
+        let challenge = claim.challenge.clone().unwrap();
+        let agent = self.agents.get_mut(&agent_id).unwrap();
+        agent.bond_locked = agent.bond_locked.saturating_sub(bond);
+        agent.bond_free = agent.bond_free.saturating_add(bond);
+        self.pay(challenge.challenger, challenge.stake);
+        emit(
+            "claim_void",
+            json!({ "claim_id": U64(id), "reason": "The judge did not rule in time" }),
+        );
     }
 }

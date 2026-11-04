@@ -60,7 +60,7 @@ function AgentLine({ event }: { event: Extract<AttackEvent, { type: "agent" }> }
   if (!event.to) return <p className="text-[0.9375rem]">The model gave no answer.</p>;
   return (
     <p className="text-[0.9375rem]">
-      <span translate="no">{event.model}</span> decided to pay {event.amountNear} NEAR to <span className="break-words font-medium" translate="no">{event.to}</span>.
+      The model decided to pay {event.amountNear} NEAR to <span className="break-words font-medium" translate="no">{event.to}</span>.
     </p>
   );
 }
@@ -186,7 +186,7 @@ export function AttackDemo({ recorded, live }: { recorded: AttackEvent[]; live: 
         </p>
         <blockquote className="mt-2 max-w-[65ch] bg-bg p-4 text-[0.875rem]">{AGENT_POLICY}</blockquote>
         <p className="mt-3 max-w-[65ch] text-[0.9375rem]">
-          Models don&apos;t always fall for this. With plain orders, Gemini resisted in all 6 of our tries. With these orders, the larger models resisted when they answered, and the lighter model used here fell for it every time. If it resists, the page says so. Vouch doesn&apos;t depend on the model being careful: it checks the recipient on the chain, which an invoice can&apos;t talk its way around.
+          Good orders help. In our tests of this model, ordinary orders paid the attacker in all 6 tries, and so did these. Orders saying that an invoice can&apos;t change a payment account refused in all 6, and if the model resists here, the page says so. Vouch doesn&apos;t depend on anyone writing perfect orders: it checks the recipient on the chain, which an invoice can&apos;t talk its way around.
         </p>
         <p className="mt-3 max-w-[65ch] text-[0.9375rem]">
           This runs on NEAR testnet with test tokens. A warned payment needs a human&apos;s yes, and nobody is at the keyboard here, so it&apos;s declined. One payment is limited to {ATTACK_AMOUNT_NEAR} NEAR.

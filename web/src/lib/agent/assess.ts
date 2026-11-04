@@ -1,8 +1,8 @@
-// The sentinel's judgement. A model reads the chain facts and makes the call, and the fixed rules set
+// The sentinel's judgement. A TEE model reads the chain facts and makes the call, and the fixed rules set
 // a floor: the model can make a call stricter but never softer, so a tricked or broken model cannot
 // turn a block into an allow. If the model gives no answer, the rules make the call alone.
 
-import { askGeminiJson } from "../gemini";
+import { askTeeJson, truncateBytes } from "../llm";
 import type { Check, Level } from "../signals";
 
 export type Assessment = {
@@ -13,9 +13,10 @@ export type Assessment = {
   decidedBy: string | null;
 };
 
-const MODEL_BUDGET_MS = 15_000;
+const MODEL_TIMEOUT_MS = 25_000;
 const MAX_MODEL_REASONS = 4;
-const MAX_REASON_LEN = 280;
+// The contract's limit, which it counts in bytes.
+const MAX_REASON_BYTES = 280;
 
 const RANK: Record<Level, number> = { block: 0, warn: 1, allow: 2 };
 
@@ -30,7 +31,7 @@ Rules:
 
 Answer with JSON only, no other text: {"verdict": "allow" | "warn" | "block", "reasons": ["..."]}`;
 
-const trimReason = (text: string) => text.trim().slice(0, MAX_REASON_LEN);
+const trimReason = (text: string) => truncateBytes(text.trim(), MAX_REASON_BYTES);
 
 function byRules(check: Check, note: string): Assessment {
   // The reasons that drove the call go first, so the contract's limit of five never cuts them.
@@ -46,16 +47,19 @@ export async function assess(check: Check): Promise<Assessment> {
   // Nothing to reason about: the account does not exist.
   if (!check.facts.exists) return byRules(check, "Call by fixed rules");
 
-  let answer: { verdict?: unknown; reasons?: unknown; model: string };
+  let said: unknown;
+  let rawReasons: unknown;
+  let model: string;
   try {
     const caseFile = { account: check.account, network: check.network, facts: check.facts, signals: check.reasons, read_at: check.checkedAt };
-    answer = await askGeminiJson(SYSTEM, JSON.stringify(caseFile, null, 2), { budgetMs: MODEL_BUDGET_MS });
+    const reply = await askTeeJson(SYSTEM, JSON.stringify(caseFile, null, 2), MODEL_TIMEOUT_MS);
+    ({ verdict: said, reasons: rawReasons } = reply.answer as { verdict?: unknown; reasons?: unknown });
+    model = reply.model;
   } catch {
     return byRules(check, "Call by fixed rules: the model gave no answer");
   }
 
-  const said = answer.verdict;
-  const reasons = Array.isArray(answer.reasons) ? answer.reasons.filter((r) => typeof r === "string" && r.trim()) : [];
+  const reasons = Array.isArray(rawReasons) ? rawReasons.filter((r): r is string => typeof r === "string" && !!r.trim()) : [];
   if ((said !== "allow" && said !== "warn" && said !== "block") || !reasons.length) {
     return byRules(check, "Call by fixed rules: the model gave no usable answer");
   }
@@ -69,8 +73,8 @@ export async function assess(check: Check): Promise<Assessment> {
     reasons: [
       // The model often repeats a rule's reason, differing only in its final full stop.
       ...[...new Set([...floor, ...reasons].map((r) => trimReason(r).replace(/\.$/, "")))].slice(0, MAX_MODEL_REASONS),
-      raised ? `Call by ${answer.model}, raised to ${verdict} by the fixed rules` : `Call by ${answer.model}, checked against fixed rules`,
+      raised ? `Call by ${model}, raised to ${verdict} by the fixed rules` : `Call by ${model}, checked against fixed rules`,
     ],
-    decidedBy: answer.model,
+    decidedBy: model,
   };
 }

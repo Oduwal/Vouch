@@ -11,6 +11,17 @@ pub enum Level {
     Block,
 }
 
+impl Level {
+    /// Higher is stricter.
+    pub(crate) fn strictness(self) -> u8 {
+        match self {
+            Level::Allow => 0,
+            Level::Warn => 1,
+            Level::Block => 2,
+        }
+    }
+}
+
 /// The two parties to a dispute.
 #[near(serializers = [json, borsh])]
 #[serde(rename_all = "lowercase")]
@@ -27,7 +38,7 @@ pub enum Side {
 pub enum Status {
     /// Bond locked, open to challenge until `challenge_until`.
     Open,
-    /// Challenged; the contract is paused in a yield, waiting for the judge.
+    /// Challenged and waiting for the judge, in a yield or its late window after that.
     Challenged,
     /// The judge ruled; the loser can appeal until `ruling.appeal_until`.
     Ruled,
@@ -40,6 +51,9 @@ pub enum Status {
     /// The judge never answered. Both sides were refunded.
     Void,
 }
+
+// Agent, Claim and everything inside Claim are stored one entry at a time, so a change to their
+// layout would corrupt existing claims. New per-claim data goes in its own map on the contract.
 
 #[near(serializers = [json, borsh])]
 #[derive(Clone, Debug)]
@@ -76,12 +90,13 @@ pub struct Claim {
 #[derive(Clone, Debug)]
 pub struct Challenge {
     pub challenger: AccountId,
+    /// What is at stake, after the storage fee came off the deposit.
     pub stake: NearToken,
     pub evidence: String,
     pub filed_at: U64,
 }
 
-/// What the judge service sends back when it resumes a paused challenge.
+/// What the judge service sends back when it rules on a challenge.
 #[near(serializers = [json, borsh])]
 #[derive(Clone, Debug)]
 pub struct RulingInput {
@@ -108,8 +123,10 @@ pub struct Ruling {
 #[derive(Clone, Debug)]
 pub struct Appeal {
     pub appellant: AccountId,
+    /// What the jurors can split, after the storage fee came off the deposit.
     pub fee: NearToken,
     pub jury: Vec<AccountId>,
+    /// Revealed votes. Sealed commitments are kept apart until each juror reveals.
     pub votes: Vec<Vote>,
     pub jury_until: U64,
     /// Set once the appeal closes: the side the jury backed, or none if it ran out of time.
@@ -137,17 +154,41 @@ pub struct Juror {
 #[near(serializers = [json, borsh])]
 #[derive(Clone, Debug)]
 pub struct Config {
-    /// The only account allowed to resume a paused challenge with a ruling.
+    /// The only account allowed to rule on a challenge.
     pub judge: AccountId,
     /// How long a new call stays open to challenge, in nanoseconds.
     pub challenge_window: U64,
     /// How long the loser of a ruling has to appeal, in nanoseconds.
     pub appeal_window: U64,
-    /// How long a jury has to vote, in nanoseconds.
+    /// How long a jury has to commit and reveal, in nanoseconds. Commits take the first half.
     pub jury_window: U64,
     pub min_bond: NearToken,
     /// A challenger must stake at least this percentage of the bond.
     pub challenge_stake_pct: u8,
     pub appeal_fee: NearToken,
     pub juror_stake: NearToken,
+    /// After a yield times out, how long the judge can still rule before both sides are refunded.
+    pub late_ruling_window: U64,
+    /// A new juror can't be drawn until this long after joining, so nobody joins for one case.
+    pub juror_warmup: U64,
+    /// A juror can't leave until this long after joining.
+    pub juror_lockup: U64,
+    /// The share of a juror's stake lost for sitting on a case and not voting.
+    pub no_show_slash_pct: u8,
+    /// How many minimum bonds one agent can have locked at once.
+    pub max_locked_bonds: u32,
+    /// Storage fees. Claims are kept forever, so whoever adds one pays for its bytes.
+    pub register_fee: NearToken,
+    pub claim_fee: NearToken,
+    pub challenge_fee: NearToken,
+    pub appeal_storage_fee: NearToken,
+    pub juror_fee: NearToken,
+}
+
+/// A config change waiting out its delay, so it can't change the terms of a case already running.
+#[near(serializers = [json, borsh])]
+#[derive(Clone, Debug)]
+pub struct PendingConfig {
+    pub config: Config,
+    pub apply_after: U64,
 }

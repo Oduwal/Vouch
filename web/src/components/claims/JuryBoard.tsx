@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { formatNear, JURY_SIZE, latestClaims, nanosToMs, parseNear, view, type Claim, type Config, type Juror } from "../../lib/vouch";
+import { formatNear, formatWindow, JURY_SIZE, latestClaims, nanosToMs, parseNear, view, type Claim, type Config, type Juror } from "../../lib/vouch";
 import { useWallet } from "../../lib/wallet";
 import { formatDate, useNow } from "./format";
 
@@ -10,11 +10,22 @@ const JOIN_TGAS = 30;
 const LEAVE_TGAS = 30;
 const ONE_YOCTO = BigInt(1);
 
-function YourSeat({ me, config, onDone }: { me: Juror | null; config: Config; onDone: () => void }) {
+function YourSeat({ me, config, now, onDone }: { me: Juror | null; config: Config; now: number; onDone: () => void }) {
   const { accountId, connect, call } = useWallet();
   const [stake, setStake] = useState(() => formatNear(config.juror_stake));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [joinedAt, setJoinedAt] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!accountId || !me) return;
+    void view<string | null>("get_juror_joined", { account: accountId })
+      .then((t) => setJoinedAt(t ? nanosToMs(t) : null))
+      .catch(() => {});
+  }, [accountId, me]);
+
+  const lockedUntil = joinedAt === null ? null : joinedAt + nanosToMs(config.juror_lockup);
+  const locked = lockedUntil !== null && now < lockedUntil;
 
   async function run(action: () => Promise<unknown>) {
     setBusy(true);
@@ -33,7 +44,7 @@ function YourSeat({ me, config, onDone }: { me: Juror | null; config: Config; on
     const amount = parseNear(stake);
     if (amount === null) return setError("Enter the stake as a NEAR amount, like 0.5.");
     if (amount < BigInt(config.juror_stake)) return setError(`The stake must be at least ${formatNear(config.juror_stake)} NEAR.`);
-    void run(() => call("join_jury", {}, amount, JOIN_TGAS));
+    void run(() => call("join_jury", {}, amount + BigInt(config.juror_fee), JOIN_TGAS));
   }
 
   return (
@@ -64,12 +75,15 @@ function YourSeat({ me, config, onDone }: { me: Juror | null; config: Config; on
           </dl>
           <button
             type="button"
-            disabled={busy || me.open_cases > 0}
+            disabled={busy || me.open_cases > 0 || locked}
             onClick={() => run(() => call("leave_jury", {}, ONE_YOCTO, LEAVE_TGAS))}
             className="mt-4 min-h-11 px-4 text-[0.875rem] outline outline-1 -outline-offset-1 outline-muted transition-colors duration-150 hover:bg-bg disabled:cursor-not-allowed disabled:text-muted sm:min-h-9"
           >
             {busy ? "Waiting for your wallet…" : `Leave and take back ${formatNear(me.stake)} NEAR`}
           </button>
+          {locked && me.open_cases === 0 && (
+            <p className="mt-2 text-[0.8125rem] text-muted">Your stake is locked for {formatWindow(config.juror_lockup)} after joining, so you can leave after {new Date(lockedUntil as number).toISOString().slice(11, 16)} UTC.</p>
+          )}
           {me.open_cases > 0 && (
             <p className="mt-2 text-[0.8125rem] text-muted">
               You can leave once your {me.open_cases === 1 ? "open case closes" : `${me.open_cases} open cases close`}.
@@ -79,7 +93,7 @@ function YourSeat({ me, config, onDone }: { me: Juror | null; config: Config; on
       ) : (
         <>
           <p className="mt-1 text-[0.875rem]">
-            Jurors on the majority split each appeal&apos;s fee. Voting with the minority costs you nothing, and your stake comes back when you leave.
+            Jurors on the majority split each appeal&apos;s fee. Voting with the minority costs nothing, but missing a vote costs {config.no_show_slash_pct}% of your stake. You can be drawn {formatWindow(config.juror_warmup)} after joining and leave after {formatWindow(config.juror_lockup)}.
           </p>
           <label htmlFor="juror-stake" className="mt-4 block text-[0.875rem] font-medium">Your stake</label>
           <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -99,7 +113,7 @@ function YourSeat({ me, config, onDone }: { me: Juror | null; config: Config; on
               {busy ? "Waiting for your wallet…" : "Join the jury"}
             </button>
           </div>
-          <p id="juror-minimum" className="mt-2 text-[0.8125rem] text-muted">At least {formatNear(config.juror_stake)} NEAR.</p>
+          <p id="juror-minimum" className="mt-2 text-[0.8125rem] text-muted">At least {formatNear(config.juror_stake)} NEAR, plus a {formatNear(config.juror_fee)} NEAR storage fee that isn&apos;t refunded.</p>
         </>
       )}
       {error && <p role="alert" className="mt-2 text-[0.875rem] font-medium">{error}</p>}
@@ -196,7 +210,7 @@ export function JuryBoard({ initialJurors, initialClaims, config, serverNow }: {
         </div>
 
         <div className="max-lg:order-first">
-          <YourSeat me={me} config={config} onDone={refresh} />
+          <YourSeat me={me} config={config} now={now} onDone={refresh} />
         </div>
       </div>
     </>

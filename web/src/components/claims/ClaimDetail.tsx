@@ -33,7 +33,7 @@ function caseSteps(claim: Claim, now: number): Step[] {
   steps.push(
     ruling
       ? { label: `Ruled for the ${ruling.winner}`, detail: formatDate(ruling.ruled_at), state: "done" }
-      : { label: "Judge deciding", detail: "About 2 minutes at most", state: "now" },
+      : { label: "Judge deciding", detail: "Usually under a minute", state: "now" },
   );
   if (ruling) {
     const decided = status === "held" || status === "overturned";
@@ -79,7 +79,7 @@ function Outcome({ claim, config, jurors, now, onDone }: { claim: Claim; config:
   const { challenge, ruling, appeal, status } = claim;
   let line = "";
   if (status === "open") line = "Nobody challenged in time. The bond returns to the agent's pool when the claim is closed.";
-  if (status === "challenged") line = "The contract has paused this case for the judge. If no ruling lands within about 2 minutes, the bond and the stake both go back to where they came from.";
+  if (status === "challenged") line = `The contract is holding this case for the judge. If no ruling lands within about ${Math.round(nanosToMs(config.late_ruling_window) / 60_000) + 2} minutes, the bond and the stake go back.`;
   if (status === "ruled" && ruling) line = `This becomes final in ${timeLeft(Math.max(0, nanosToMs(ruling.appeal_until) - now))} unless the losing side appeals.`;
   if (status === "appealed" && appeal) line = `A jury of ${appeal.jury.length} is hearing the appeal, with ${appeal.votes.length} of ${appeal.jury.length} votes in. If it can't reach a majority by ${formatDate(appeal.jury_until)}, the judge's ruling stands.`;
   if (status === "held") line = challenge ? `The call held. ${claim.agent} kept its bond and took the challenger's ${formatNear(challenge.stake)} NEAR stake.` : `The call held. Nobody challenged it and the bond went back to ${claim.agent}'s pool.`;
@@ -133,7 +133,7 @@ function Outcome({ claim, config, jurors, now, onDone }: { claim: Claim; config:
       )}
 
       {status === "ruled" && <AppealPanel claim={claim} config={config} jurors={jurors} now={now} onDone={onDone} />}
-      {appeal && <JuryPanel claim={claim} now={now} onDone={onDone} />}
+      {appeal && <JuryPanel claim={claim} config={config} now={now} onDone={onDone} />}
     </section>
   );
 }
