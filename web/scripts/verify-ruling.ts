@@ -9,12 +9,13 @@ import { verifyMessage } from "ethers";
 import { checkGpuToken, sha256 } from "../src/lib/judge/attestation";
 import { caseRef } from "../src/lib/judge/ruling";
 import { firstJsonObject } from "../src/lib/llm";
-import { CONTRACT_ID, TESTNET_RPC, view, type Claim, type Config } from "../src/lib/vouch";
+import { CONTRACT_ID, TESTNET_RPC, view, type Claim, type Config, type Round } from "../src/lib/vouch";
 
 const [claimId, givenHash] = process.argv.slice(2);
 if (!claimId) throw new Error("Usage: pnpm verify:ruling <claim id> [transaction hash]");
 
-// Looks through what the judge has signed for the call that ruled on this claim.
+// Looks through what the judge has signed for the newest call that ruled on this claim. A second ping can
+// race the first, and the contract refuses the loser, so only a call that succeeded counts.
 async function findRulingTx(judge: string): Promise<string> {
   const listed = await fetch("https://tx.test.fastnear.com/v0/account", {
     method: "POST",
@@ -25,7 +26,7 @@ async function findRulingTx(judge: string): Promise<string> {
   for (const hash of hashes) {
     const res = await readTx(hash, judge);
     const call = res.result?.transaction?.actions?.[0]?.FunctionCall;
-    if (call?.method_name !== "submit_ruling") continue;
+    if (call?.method_name !== "submit_ruling" || res.result.status?.Failure) continue;
     const args = JSON.parse(Buffer.from(call.args, "base64").toString("utf8"));
     if (String(args.claim_id) === claimId) return hash;
   }
@@ -47,8 +48,14 @@ function check(ok: boolean, what: string) {
 }
 
 async function main() {
-  const [claim, config] = await Promise.all([view<Claim | null>("get_claim", { claim_id: claimId }), view<Config>("get_config")]);
-  if (!claim?.ruling) throw new Error(`Claim ${claimId} has no ruling`);
+  const [claim, config, rounds] = await Promise.all([
+    view<Claim | null>("get_claim", { claim_id: claimId }),
+    view<Config>("get_config"),
+    view<Round[]>("get_rounds", { claim_id: claimId }),
+  ]);
+  // A call the agent defended reopens, and its earlier rulings move to its rounds.
+  const rulings = [claim?.ruling, ...rounds.map((r) => r.ruling)].filter((r) => !!r);
+  if (!rulings.length) throw new Error(`Claim ${claimId} has no ruling`);
 
   const txHash = givenHash ?? (await findRulingTx(config.judge));
   const res = await readTx(txHash, config.judge);
@@ -56,23 +63,25 @@ async function main() {
   if (!tx) throw new Error(`Couldn't read transaction ${txHash}: ${JSON.stringify(res.error).slice(0, 200)}`);
   const call = tx.actions?.[0]?.FunctionCall;
   const args = JSON.parse(Buffer.from(call.args, "base64").toString("utf8"));
+  const ruling = rulings.find((r) => r.attestation.endsWith(sha256(args.proof))) ?? rulings[0];
 
-  console.log(`Claim ${claimId} on ${CONTRACT_ID}, ruled for the ${claim.ruling.winner} by ${claim.ruling.model}\n`);
+  console.log(`Claim ${claimId} on ${CONTRACT_ID}, ruled for the ${ruling.winner} by ${ruling.model}\n`);
   console.log("The transaction");
+  check(!res.result.status?.Failure, "it succeeded on-chain");
   check(tx.signer_id === config.judge, `signed by the contract's judge, ${config.judge}`);
   check(tx.receiver_id === CONTRACT_ID && call.method_name === "submit_ruling", "a submit_ruling call on this contract");
   check(String(args.claim_id) === claimId, "for this claim");
 
-  if (claim.ruling.attestation.startsWith("unverified:")) {
+  if (ruling.attestation.startsWith("unverified:")) {
     console.log(`\nThis ruling came from the stand-in judge outside a TEE, and carries no attestation.`);
-    check(`unverified:sha256:${sha256(args.proof)}` === claim.ruling.attestation, "its record matches the hash on the claim");
+    check(`unverified:sha256:${sha256(args.proof)}` === ruling.attestation, "its record matches the hash on the claim");
     process.exit(failed ? 1 : 0);
   }
 
   console.log("\nThe proof");
-  check(`sha256:${sha256(args.proof)}` === claim.ruling.attestation, "its hash matches the one stored on the claim");
+  check(`sha256:${sha256(args.proof)}` === ruling.attestation, "its hash matches the one stored on the claim");
   const proof = JSON.parse(args.proof);
-  check(proof.model === claim.ruling.model, "it names the same model as the ruling");
+  check(proof.model === ruling.model, "it names the same model as the ruling");
 
   console.log("\nThe model's answer");
   const expected = `${proof.model}:${sha256(proof.request)}:${sha256(proof.response)}`;
@@ -82,8 +91,8 @@ async function main() {
   check(proof.signature.signatureKind === "provider_tee", "by a key held in the TEE");
   const content = JSON.parse(proof.response).choices[0].message.content;
   const answer = firstJsonObject(content) as { winner: string; summary: string };
-  check(answer.winner === claim.ruling.winner, "the answer's winner is the ruling's winner");
-  check(claim.ruling.summary.startsWith(String(answer.summary).trim().slice(0, 200)), "the answer's summary is the ruling's summary");
+  check(answer.winner === ruling.winner, "the answer's winner is the ruling's winner");
+  check(ruling.summary.startsWith(String(answer.summary).trim().slice(0, 200)), "the answer's summary is the ruling's summary");
 
   if (proof.version < 2) {
     console.log("\nThis is a version 1 proof. It records the attestation's results and a hash of the quote, not the raw evidence, so the hardware can't be re-checked from it.");

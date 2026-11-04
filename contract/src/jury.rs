@@ -123,7 +123,12 @@ impl Contract {
         require!(&appellant == loser, "Only the side that lost can appeal");
 
         let agent = claim.agent.clone();
-        let jury = self.draw_jury(claim_id.0, &[&agent, &challenger, &self.config.judge]);
+        // The account the call is about has a stake in the outcome too.
+        let subject = claim.subject.clone();
+        let jury = self.draw_jury(
+            claim_id.0,
+            &[&agent, &challenger, &subject, &self.config.judge],
+        );
         for juror in &jury {
             self.jurors.get_mut(juror).unwrap().open_cases += 1;
         }
@@ -271,6 +276,15 @@ impl Contract {
     /// Pick `JURY_SIZE` distinct jurors. Reads a few list entries however large the pool is. The seed
     /// mixes in the claim, so two appeals in one block don't draw the same people.
     pub(crate) fn draw_jury(&self, claim_id: u64, exclude: &[&AccountId]) -> Vec<AccountId> {
+        self.try_draw_jury(claim_id, exclude)
+            .unwrap_or_else(|| env::panic_str("Not enough jurors to hear an appeal"))
+    }
+
+    pub(crate) fn try_draw_jury(
+        &self,
+        claim_id: u64,
+        exclude: &[&AccountId],
+    ) -> Option<Vec<AccountId>> {
         let now = env::block_timestamp();
         let total = self.juror_list.len();
         let mut seed = env::random_seed();
@@ -289,16 +303,15 @@ impl Contract {
                 .filter(|a| self.can_sit(a, exclude, &[], now))
                 .cloned()
                 .collect();
-            require!(
-                pool.len() >= JURY_SIZE,
-                "Not enough jurors to hear an appeal"
-            );
+            if pool.len() < JURY_SIZE {
+                return None;
+            }
             for i in 0..JURY_SIZE {
                 let span = (pool.len() - i) as u64;
                 pool.swap(i, i + (next(&mut hash) % span) as usize);
             }
             pool.truncate(JURY_SIZE);
-            return pool;
+            return Some(pool);
         }
         for _ in 0..MAX_DRAW_TRIES {
             if picked.len() == JURY_SIZE {
@@ -311,20 +324,17 @@ impl Contract {
                 picked.push(account.clone());
             }
         }
-        require!(
-            picked.len() == JURY_SIZE,
-            "Not enough jurors to hear an appeal"
-        );
-        picked
+        (picked.len() == JURY_SIZE).then_some(picked)
     }
 
     /// Close an appeal. With a majority, the jury's side wins and its voters split the fee.
     /// Without one (time ran out), the judge's ruling stands and the fee goes back to the appellant.
+    /// If the jury was standing in for a silent judge, there's no ruling, so both sides are refunded.
     /// A juror who was drawn and let the case down loses part of their stake: for not sealing a
     /// vote, or, once time has run out, for not revealing it. The winners or appellant receive it.
     pub(crate) fn close_appeal(&mut self, id: u64, majority: Option<Side>) {
         let claim = self.claim_mut(id);
-        let judge_winner = claim.ruling.as_ref().unwrap().winner;
+        let judge_winner = claim.ruling.as_ref().map(|r| r.winner);
         let appeal = claim.appeal.as_mut().unwrap();
         appeal.decided = majority;
         let appeal = appeal.clone();
@@ -382,7 +392,10 @@ impl Contract {
             }
             None => {
                 self.pay(appeal.appellant.clone(), pot);
-                self.settle(id, judge_winner);
+                match judge_winner {
+                    Some(winner) => self.settle(id, winner),
+                    None => self.void(id),
+                }
             }
         }
     }

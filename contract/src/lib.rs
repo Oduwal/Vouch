@@ -25,6 +25,12 @@ const MINUTE: u64 = HOUR / 60;
 const PAYOUT_GAS: Gas = Gas::from_tgas(5);
 const MAX_DUE_SCAN: usize = 200;
 const MAX_WINDOW: u64 = 30 * 24 * HOUR;
+const MIGRATE_GAS: Gas = Gas::from_tgas(100);
+/// After the agent beats a challenge, how long others have to bring their own, however late it came.
+const REOPEN_WINDOW: u64 = 6 * HOUR;
+/// A challenge whose yield never reported back can be closed this long after it was filed. Far longer
+/// than any yield, so it only covers a callback that failed.
+const STUCK_AFTER: u64 = HOUR;
 
 // New keys only ever go on the end: each key's position names its stored data.
 #[near(serializers = [borsh])]
@@ -43,6 +49,7 @@ enum StorageKey {
     JurorJoined,
     Commits,
     Owed,
+    Rounds,
 }
 
 #[near(contract_state)]
@@ -72,6 +79,9 @@ pub struct Contract {
     /// Payments that failed, usually because the account was deleted. Its owner can collect them.
     owed: LookupMap<AccountId, NearToken>,
     pending_config: Option<PendingConfig>,
+    /// Challenges each open claim has already beaten.
+    rounds: LookupMap<u64, Vec<Round>>,
+    pending_upgrade: Option<PendingUpgrade>,
 }
 
 fn default_config(judge: AccountId) -> Config {
@@ -118,6 +128,8 @@ impl Contract {
             commits: LookupMap::new(StorageKey::Commits),
             owed: LookupMap::new(StorageKey::Owed),
             pending_config: None,
+            rounds: LookupMap::new(StorageKey::Rounds),
+            pending_upgrade: None,
         }
     }
 
@@ -129,14 +141,7 @@ impl Contract {
             "Only the owner can change the config"
         );
         validate_config(&config);
-        let delay = self
-            .config
-            .challenge_window
-            .0
-            .saturating_add(self.config.late_ruling_window.0)
-            .saturating_add(self.config.appeal_window.0)
-            .saturating_add(self.config.jury_window.0);
-        let apply_after = U64(env::block_timestamp().saturating_add(delay));
+        let apply_after = U64(env::block_timestamp().saturating_add(self.owner_delay()));
         emit(
             "config_queued",
             json!({ "config": config, "apply_after": apply_after }),
@@ -159,6 +164,72 @@ impl Contract {
         );
         emit("config_applied", json!(pending.config));
         self.config = pending.config;
+    }
+
+    /// Announce a code change. It can be applied once every case running today could have closed, so
+    /// anyone who dislikes the new code can leave first. Once the account's full-access key is gone,
+    /// this is the only way the code can change.
+    pub fn propose_upgrade(
+        &mut self,
+        code_hash: String,
+        migrate_method: String,
+        migrate_args: String,
+    ) {
+        require!(
+            env::predecessor_account_id() == self.owner,
+            "Only the owner can propose an upgrade"
+        );
+        require!(
+            code_hash.len() == 64 && !migrate_method.is_empty(),
+            "Give the code's sha256 as hex, and the method that migrates to it"
+        );
+        let pending = PendingUpgrade {
+            code_hash,
+            migrate_method,
+            migrate_args,
+            apply_after: U64(env::block_timestamp().saturating_add(self.owner_delay())),
+        };
+        emit("upgrade_proposed", json!(pending));
+        self.pending_upgrade = Some(pending);
+    }
+
+    pub fn cancel_upgrade(&mut self) {
+        require!(
+            env::predecessor_account_id() == self.owner,
+            "Only the owner can cancel an upgrade"
+        );
+        require!(
+            self.pending_upgrade.take().is_some(),
+            "No upgrade is waiting"
+        );
+        emit("upgrade_cancelled", json!({}));
+    }
+
+    /// Deploy the announced code and migrate to it in one step. The code is this call's raw input and
+    /// must match the announced hash. Anyone can call it once the delay has passed.
+    pub fn apply_upgrade(&mut self) -> Promise {
+        let pending = self
+            .pending_upgrade
+            .take()
+            .unwrap_or_else(|| env::panic_str("No upgrade is waiting"));
+        require!(
+            env::block_timestamp() >= pending.apply_after.0,
+            "The upgrade is still waiting out its delay"
+        );
+        let code = env::input().unwrap_or_default();
+        require!(
+            hex_encode(&env::sha256(&code)) == pending.code_hash,
+            "This code doesn't match the announced hash"
+        );
+        emit("upgrade_applied", json!({ "code_hash": pending.code_hash }));
+        Promise::new(env::current_account_id())
+            .deploy_contract(code)
+            .function_call(
+                pending.migrate_method,
+                pending.migrate_args.into_bytes(),
+                NearToken::from_yoctonear(0),
+                MIGRATE_GAS,
+            )
     }
 
     // ---- agents ----
@@ -363,8 +434,9 @@ impl Contract {
         self.settle(claim_id.0, Side::Agent);
     }
 
-    /// Close a case whose time has run out: a ruling nobody appealed, an appeal whose jury ran out
-    /// of time, or a challenge the judge never answered. Anyone can call it.
+    /// Close a case whose time has run out: a ruling nobody appealed, an appeal whose jury ran out of
+    /// time, or a challenge the judge never answered, which goes to a jury if there are enough jurors.
+    /// Anyone can call it.
     pub fn finalize(&mut self, claim_id: U64) {
         let claim = self.claim(claim_id.0);
         let now = env::block_timestamp();
@@ -384,11 +456,11 @@ impl Contract {
                 self.close_appeal(claim_id.0, None);
             }
             Status::Challenged => {
-                let until = self.late.get(&claim_id.0).copied().unwrap_or_else(|| {
-                    env::panic_str("The judge can still rule on this challenge")
-                });
-                require!(now >= until, "The judge can still rule on this challenge");
-                self.void(claim_id.0);
+                require!(
+                    now >= self.ruling_deadline(claim),
+                    "The judge can still rule on this challenge"
+                );
+                self.judge_was_silent(claim_id.0);
             }
             _ => env::panic_str("This claim has nothing left to finalize"),
         }
@@ -402,6 +474,17 @@ impl Contract {
 
     pub fn get_pending_config(&self) -> Option<&PendingConfig> {
         self.pending_config.as_ref()
+    }
+
+    pub fn get_pending_upgrade(&self) -> Option<&PendingUpgrade> {
+        self.pending_upgrade.as_ref()
+    }
+
+    /// Challenges this claim has already beaten, oldest first.
+    pub fn get_rounds(&self, claim_id: U64) -> Vec<&Round> {
+        self.rounds
+            .get(&claim_id.0)
+            .map_or(vec![], |r| r.iter().collect())
     }
 
     pub fn get_owner(&self) -> &AccountId {
@@ -488,6 +571,14 @@ impl Contract {
     /// Whether a juror has sealed a vote on an appeal.
     pub fn has_committed(&self, claim_id: U64, juror: AccountId) -> bool {
         self.commits.contains_key(&(claim_id.0, juror))
+    }
+
+    /// A juror's sealed vote, as hex. It shows no side, and it's already public in the transaction
+    /// that sealed it.
+    pub fn get_commitment(&self, claim_id: U64, juror: AccountId) -> Option<String> {
+        self.commits
+            .get(&(claim_id.0, juror))
+            .map(|hash| hex_encode(hash))
     }
 
     pub fn get_owed(&self, account: AccountId) -> NearToken {
@@ -581,6 +672,24 @@ impl Contract {
             .unwrap_or_else(|| env::panic_str("No claim with that id"))
     }
 
+    /// How long a config or code change must wait: long enough for any case running now to close.
+    fn owner_delay(&self) -> u64 {
+        self.config
+            .challenge_window
+            .0
+            .saturating_add(self.config.late_ruling_window.0)
+            .saturating_add(self.config.appeal_window.0)
+            .saturating_add(self.config.jury_window.0)
+    }
+
+    /// When the judge's time on a challenge runs out.
+    fn ruling_deadline(&self, claim: &Claim) -> u64 {
+        self.late.get(&claim.id.0).copied().unwrap_or_else(|| {
+            let filed = claim.challenge.as_ref().map_or(0, |c| c.filed_at.0);
+            filed.saturating_add(STUCK_AFTER)
+        })
+    }
+
     fn is_due(&self, claim: &Claim, now: u64) -> bool {
         match claim.status {
             Status::Open => now >= claim.challenge_until.0,
@@ -589,10 +698,7 @@ impl Contract {
                 .as_ref()
                 .is_some_and(|r| now >= r.appeal_until.0),
             Status::Appealed => claim.appeal.as_ref().is_some_and(|a| now >= a.jury_until.0),
-            Status::Challenged => self
-                .late
-                .get(&claim.id.0)
-                .is_some_and(|until| now >= *until),
+            Status::Challenged => now >= self.ruling_deadline(claim),
             Status::Held | Status::Overturned | Status::Void => false,
         }
     }
@@ -612,8 +718,38 @@ impl Contract {
         }
     }
 
+    /// The agent beat a challenge and takes its stake, but one lost challenge doesn't clear the call.
+    /// Otherwise an agent could challenge its own false call from a second account, lose on purpose
+    /// and be safe from anyone with real evidence. The call reopens, for at least `REOPEN_WINDOW`.
+    fn reopen(&mut self, id: u64) {
+        let until = env::block_timestamp().saturating_add(REOPEN_WINDOW);
+        let claim = self.claim_mut(id);
+        let challenge = claim.challenge.take().unwrap();
+        let round = Round {
+            challenge: challenge.clone(),
+            ruling: claim.ruling.take(),
+            appeal: claim.appeal.take(),
+        };
+        claim.status = Status::Open;
+        claim.challenge_until = U64(claim.challenge_until.0.max(until));
+        let reopened_until = claim.challenge_until;
+        let agent_id = claim.agent.clone();
+        let mut rounds = self.rounds.get(&id).cloned().unwrap_or_default();
+        rounds.push(round);
+        self.rounds.insert(id, rounds);
+        let agent = self.agents.get_mut(&agent_id).unwrap();
+        agent.bond_free = agent.bond_free.saturating_add(challenge.stake);
+        emit(
+            "claim_reopened",
+            json!({ "claim_id": U64(id), "stake": challenge.stake, "until": reopened_until }),
+        );
+    }
+
     /// Pay out a claim for good. The winner takes the bond and any counter-stake.
     fn settle(&mut self, id: u64, winner: Side) {
+        if winner == Side::Agent && self.claim(id).challenge.is_some() {
+            return self.reopen(id);
+        }
         let claim = self.claim_mut(id);
         let bond = claim.bond;
         let agent_id = claim.agent.clone();
@@ -648,11 +784,15 @@ impl Contract {
     }
 }
 
+fn hex_encode(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
 /// Log a NEP-297 event so indexers and the judge service can follow along.
 fn emit(event: &str, data: Value) {
     env::log_str(&format!(
         "EVENT_JSON:{}",
-        json!({ "standard": "vouch", "version": "1.1.0", "event": event, "data": [data] })
+        json!({ "standard": "vouch", "version": "1.2.0", "event": event, "data": [data] })
     ));
 }
 

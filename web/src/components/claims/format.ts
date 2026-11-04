@@ -35,7 +35,7 @@ export function statusLine(claim: Claim, now: number) {
       return "Void, both sides refunded";
     default:
       if (claim.status === "challenged") return "Judge deciding";
-      if (claim.status === "appealed") return "Jury hearing the appeal";
+      if (claim.status === "appealed") return claim.ruling ? "Jury hearing the appeal" : "Jury hearing the case";
       return claim.ruling?.winner === "agent" ? "Ruled for the agent" : "Ruled for the challenger";
   }
 }

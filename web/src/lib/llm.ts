@@ -69,7 +69,7 @@ export function truncateBytes(text: string, maxBytes: number): string {
 
 // One question to the TEE model whose answer is a JSON object. Used by the agents: their calls are
 // checked below the model, by the fixed rules and the guard, so they don't each carry a proof.
-export async function askTeeJson(system: string, user: string, timeoutMs: number): Promise<{ answer: unknown; model: string }> {
+export async function askTeeJson(system: string, user: string, timeoutMs: number, temperature = 0): Promise<{ answer: unknown; model: string }> {
   const res = await fetch(`${NEARAI_API}/chat/completions`, {
     method: "POST",
     headers: { ...nearAiHeaders(), "Content-Type": "application/json", "Accept-Encoding": "identity" },
@@ -79,7 +79,7 @@ export async function askTeeJson(system: string, user: string, timeoutMs: number
         { role: "system", content: system },
         { role: "user", content: user },
       ],
-      temperature: 0,
+      temperature,
       max_tokens: MAX_TOKENS,
       response_format: { type: "json_object" },
     }),

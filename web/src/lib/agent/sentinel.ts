@@ -5,7 +5,7 @@
 import { Account, JsonRpcProvider, nearToYocto, teraToGas, type KeyPairString } from "near-api-js";
 import { withNonceRetry } from "../nonce";
 import { checkAccount, type Check, type Level } from "../signals";
-import { CONTRACT_ID, TESTNET_RPC, view, type Claim } from "../vouch";
+import { CONTRACT_ID, TESTNET_RPC, isLive, view, type Claim } from "../vouch";
 import { assess } from "./assess";
 
 export const AGENT_BOND_NEAR = (process.env.AGENT_BOND_NEAR ?? "0.5") as `${number}`;
@@ -33,12 +33,6 @@ export function sentinel() {
   const key = process.env.SENTINEL_PRIVATE_KEY as KeyPairString | undefined;
   if (!key) throw new Error("SENTINEL_PRIVATE_KEY must be set");
   return new Account(sentinelId(), new JsonRpcProvider({ url: TESTNET_RPC }), key);
-}
-
-// A claim still stands behind its call until it is closed or its challenge window passes.
-function isLive(claim: Claim) {
-  if (claim.status === "open") return BigInt(claim.challenge_until) > BigInt(Date.now()) * BigInt(1_000_000);
-  return claim.status === "challenged" || claim.status === "ruled" || claim.status === "appealed";
 }
 
 // Reuses this agent's live claim on the subject instead of locking a second bond, unless the chain has

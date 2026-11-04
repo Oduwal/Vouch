@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { eligibleJurors, formatNear, JURY_SIZE, nanosToMs, view, type Claim, type Config, type Juror, type Side } from "../../lib/vouch";
+import { eligibleJurors, formatNear, JURY_SIZE, isDemoJuror, nanosToMs, view, type Claim, type Config, type Juror, type Side } from "../../lib/vouch";
 import { useWallet } from "../../lib/wallet";
 import { formatDate, timeLeft } from "./format";
 
@@ -158,7 +158,7 @@ export function JuryPanel({ claim, config, now, onDone }: { claim: Claim; config
   return (
     <div className="mt-5 bg-bg p-4">
       <h3 className="text-[0.875rem] font-medium">
-        Appeal by <span translate="no">{appeal.appellant}</span>, {formatNear(appeal.fee)} NEAR for the jurors
+        {claim.ruling ? <>Appeal by <span translate="no">{appeal.appellant}</span></> : "The judge gave no ruling, so a jury took the case"}, {formatNear(appeal.fee)} NEAR for the jurors
       </h3>
       <ul className="mt-2 text-[0.875rem]">
         {appeal.jury.map((juror) => {
@@ -166,7 +166,10 @@ export function JuryPanel({ claim, config, now, onDone }: { claim: Claim; config
           const status = cast ? `Voted for the ${cast.side}` : sealed.includes(juror) ? "Vote sealed" : open ? "Has not voted" : "Did not vote";
           return (
             <li key={juror} className="flex flex-wrap justify-between gap-x-4 py-1">
-              <span className="min-w-0 break-words" translate="no">{juror}</span>
+              <span className="min-w-0 break-words">
+                <span translate="no">{juror}</span>
+                {isDemoJuror(juror) && <span className="text-muted"> Demo juror (bot)</span>}
+              </span>
               <span className={cast ? "font-medium" : "text-muted"}>{status}</span>
             </li>
           );
@@ -180,7 +183,7 @@ export function JuryPanel({ claim, config, now, onDone }: { claim: Claim; config
           ) : seated && !iSealed && sealingOpen ? (
             <>
               <p className="max-w-[65ch] text-[0.875rem]">
-                You were drawn for this jury. Read the call, the evidence and the ruling above, then seal your vote before {formatDate(String(BigInt(Math.floor(sealBy)) * BigInt(1_000_000)))}.
+                You were drawn for this jury. Read the call, the evidence and any ruling above, then seal your vote before {formatDate(String(BigInt(Math.floor(sealBy)) * BigInt(1_000_000)))}.
                 Nobody can see how you voted until everyone has sealed. If you don&apos;t vote, you lose {config.no_show_slash_pct}% of your stake.
               </p>
               {/* The two votes look the same on purpose: the screen must not lean either way. */}

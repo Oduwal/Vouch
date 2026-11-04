@@ -9,6 +9,7 @@ const AGENT: &str = "sentinel.near";
 const CHALLENGER: &str = "alice.near";
 const DAY: u64 = 24 * HOUR;
 const SALT: &str = "test-salt";
+const PROOF: &str = "the model's signed answer";
 
 fn near(n: u128) -> NearToken {
     NearToken::from_near(n)
@@ -34,7 +35,7 @@ fn ruling(winner: Side) -> RulingInput {
         winner,
         summary: "The owner key minted tokens to itself after the call.".into(),
         model: "test-model".into(),
-        attestation: "sha256:00".into(),
+        attestation: format!("sha256:{}", hex_encode(&env::sha256(PROOF.as_bytes()))),
     }
 }
 
@@ -223,7 +224,7 @@ fn only_the_judge_rules() {
     as_(CHALLENGER, stake_deposit(), 5);
     c.challenge(U64(0), "evidence".into());
     as_(CHALLENGER, near(0), 6);
-    c.submit_ruling(U64(0), ruling(Side::Challenger), None);
+    c.submit_ruling(U64(0), ruling(Side::Challenger), PROOF.into());
 }
 
 #[test]
@@ -255,16 +256,77 @@ fn challenger_win_takes_the_bond() {
 }
 
 #[test]
-fn agent_win_takes_the_counter_stake() {
+fn agent_win_takes_the_counter_stake_and_the_call_reopens() {
     let mut c = ruled(Side::Agent);
     as_("anyone.near", near(0), 10 + DAY);
     c.finalize(U64(0));
+    let a = agent(&c);
+    let claim = c.get_claim(U64(0)).unwrap();
+    assert_eq!(claim.status, Status::Open);
+    assert!(claim.challenge.is_none() && claim.ruling.is_none());
+    assert_eq!(claim.challenge_until, U64(10 + DAY + 6 * HOUR));
+    assert_eq!(
+        (a.bond_free, a.bond_locked, a.calls_held),
+        (milli(8965), near(2), 0)
+    );
+    let rounds = c.get_rounds(U64(0));
+    assert_eq!(rounds.len(), 1);
+    assert_eq!(rounds[0].challenge.challenger.as_str(), CHALLENGER);
+    assert_eq!(rounds[0].ruling.as_ref().unwrap().winner, Side::Agent);
+}
+
+#[test]
+fn a_sham_challenge_does_not_protect_a_false_call() {
+    let mut c = ruled(Side::Agent);
+    as_("anyone.near", near(0), 10 + DAY);
+    c.finalize(U64(0));
+    // Someone with real evidence still gets their turn, and wins.
+    as_("honest.near", stake_deposit(), 11 + DAY);
+    c.challenge(U64(0), "The real evidence.".into());
+    as_(JUDGE, near(0), 12 + DAY);
+    c.waiting.remove(&0);
+    c.record_ruling(0, ruling(Side::Challenger));
+    as_("anyone.near", near(0), 12 + 2 * DAY);
+    c.finalize(U64(0));
+    let a = agent(&c);
+    assert_eq!(status(&c), Status::Overturned);
+    assert_eq!(
+        (a.bond_free, a.bond_locked, a.calls_lost),
+        (milli(8965), near(0), 1)
+    );
+    assert_eq!(c.get_rounds(U64(0)).len(), 1);
+}
+
+#[test]
+fn a_reopened_call_closes_as_held_if_nobody_else_comes() {
+    let mut c = ruled(Side::Agent);
+    as_("anyone.near", near(0), 10 + DAY);
+    c.finalize(U64(0));
+    as_("anyone.near", near(0), 10 + DAY + 6 * HOUR);
+    assert_eq!(c.get_due(None).len(), 1);
+    c.release(U64(0));
     let a = agent(&c);
     assert_eq!(status(&c), Status::Held);
     assert_eq!(
         (a.bond_free, a.bond_locked, a.calls_held),
         (milli(10965), near(0), 1)
     );
+    assert_eq!(c.active_count(), 0);
+}
+
+#[test]
+fn a_reopening_keeps_a_later_deadline() {
+    let mut c = setup();
+    as_(CHALLENGER, stake_deposit(), 5);
+    c.challenge(U64(0), "evidence".into());
+    as_(JUDGE, near(0), 10);
+    c.waiting.remove(&0);
+    c.record_ruling(0, ruling(Side::Agent));
+    c.config.appeal_window = U64(MINUTE);
+    c.claim_mut(0).ruling.as_mut().unwrap().appeal_until = U64(MINUTE);
+    as_("anyone.near", near(0), MINUTE);
+    c.finalize(U64(0));
+    assert_eq!(c.get_claim(U64(0)).unwrap().challenge_until, U64(DAY));
 }
 
 #[test]
@@ -275,11 +337,10 @@ fn a_long_ruling_is_recorded_whole() {
     let mut long = ruling(Side::Agent);
     long.summary = "s".repeat(1000);
     long.model = "m".repeat(200);
-    long.attestation = "a".repeat(200);
     as_(CONTRACT, near(0), 300);
     c.on_ruling(U64(0));
     as_(JUDGE, near(0), 400);
-    c.submit_ruling(U64(0), long, None);
+    c.submit_ruling(U64(0), long, PROOF.into());
     let claim = c.get_claim(U64(0)).unwrap();
     assert_eq!(claim.ruling.as_ref().unwrap().summary.len(), 1000);
     assert!(c.get_waiting().is_empty());
@@ -290,7 +351,7 @@ fn a_long_ruling_is_recorded_whole() {
 fn a_second_ruling_is_refused() {
     let mut c = ruled(Side::Agent);
     as_(JUDGE, near(0), 11);
-    c.submit_ruling(U64(0), ruling(Side::Challenger), None);
+    c.submit_ruling(U64(0), ruling(Side::Challenger), PROOF.into());
 }
 
 #[test]
@@ -326,7 +387,7 @@ fn a_yield_timeout_does_not_let_a_bad_call_off_free() {
 fn the_judge_can_still_rule_in_the_late_window() {
     let mut c = timed_out();
     as_(JUDGE, near(0), 400);
-    c.submit_ruling(U64(0), ruling(Side::Challenger), None);
+    c.submit_ruling(U64(0), ruling(Side::Challenger), PROOF.into());
     assert_eq!(status(&c), Status::Ruled);
     assert!(c.get_waiting().is_empty());
 }
@@ -372,7 +433,7 @@ fn a_ruling_after_the_late_window_is_refused() {
     let mut c = timed_out();
     let end = 300 + c.config.late_ruling_window.0;
     as_(JUDGE, near(0), end);
-    c.submit_ruling(U64(0), ruling(Side::Challenger), None);
+    c.submit_ruling(U64(0), ruling(Side::Challenger), PROOF.into());
 }
 
 // ---- ids that don't fit ----
@@ -564,7 +625,7 @@ fn deadlines_saturate_rather_than_panic() {
     c.on_ruling(U64(0));
     assert_eq!(c.late.get(&0), Some(&u64::MAX));
     as_(JUDGE, near(0), 400);
-    c.submit_ruling(U64(0), ruling(Side::Agent), None);
+    c.submit_ruling(U64(0), ruling(Side::Agent), PROOF.into());
     assert_eq!(status(&c), Status::Ruled);
 }
 
@@ -766,12 +827,12 @@ fn sealed_votes_decide_and_the_majority_is_paid() {
     reveal(&mut c, &jury[1], Side::Agent, 41);
 
     let a = agent(&c);
-    assert_eq!(status(&c), Status::Held);
+    assert_eq!(status(&c), Status::Open);
     assert_eq!(
         (a.bond_free, a.calls_held, a.calls_lost),
-        (milli(10965), 1, 0)
+        (milli(8965), 0, 0)
     );
-    let appeal = c.get_claim(U64(0)).unwrap().appeal.clone().unwrap();
+    let appeal = c.get_rounds(U64(0))[0].appeal.clone().unwrap();
     assert_eq!(appeal.decided, Some(Side::Agent));
     assert_eq!(appeal.fee, milli(990));
     for j in &jury {
@@ -894,7 +955,7 @@ fn a_fair_minority_juror_is_not_slashed_when_the_majority_closes_early() {
     }
     reveal(&mut c, &jury[0], Side::Agent, 40);
     reveal(&mut c, &jury[1], Side::Agent, 41);
-    assert_eq!(status(&c), Status::Held);
+    assert_eq!(status(&c), Status::Open);
     assert_eq!(c.jurors.get(&jury[2]).unwrap().stake, near(1));
 }
 
@@ -911,7 +972,7 @@ fn an_odd_split_strands_nothing() {
     reveal(&mut c, &jury[1], Side::Agent, 41);
     // Two winners and an odd amount: settling didn't panic, and the winners get the whole pot. The
     // payment amounts are checked on the testnet rehearsal.
-    assert_eq!(status(&c), Status::Held);
+    assert_eq!(status(&c), Status::Open);
 }
 
 #[test]
@@ -951,4 +1012,235 @@ fn leaving_keeps_the_draw_list_consistent() {
     as_("j3.near", NearToken::from_yoctonear(1), 12);
     let _ = c.leave_jury();
     assert_eq!(c.juror_list.len(), 1);
+}
+
+// ---- a silent judge ----
+
+/// Past the late window, with `names` in the pool, and closed by anyone.
+fn judge_went_silent(names: &[&str]) -> Contract {
+    let mut c = with_jurors(timed_out(), names);
+    let end = 300 + c.config.late_ruling_window.0;
+    as_("anyone.near", near(0), end);
+    c.finalize(U64(0));
+    c
+}
+
+#[test]
+fn a_jury_replaces_a_silent_judge_and_is_paid_from_the_stake() {
+    let c = judge_went_silent(&THREE);
+    let claim = c.get_claim(U64(0)).unwrap();
+    assert_eq!(claim.status, Status::Appealed);
+    assert!(claim.ruling.is_none());
+    assert_eq!(claim.challenge.as_ref().unwrap().stake, milli(800));
+    let appeal = claim.appeal.as_ref().unwrap();
+    assert_eq!((appeal.fee, appeal.jury.len()), (milli(200), 3));
+    assert_eq!(appeal.appellant.as_str(), CHALLENGER);
+    assert!(c.get_waiting().is_empty() && c.late.is_empty());
+    assert_eq!(c.jurors.get(&appeal.jury[0]).unwrap().open_cases, 1);
+}
+
+fn jury_decides(c: &mut Contract, side: Side) {
+    let jury = c.get_claim(U64(0)).unwrap().appeal.clone().unwrap().jury;
+    let now = 300 + c.config.late_ruling_window.0 + 10;
+    for j in &jury {
+        commit(c, j, side, now);
+    }
+    reveal(c, &jury[0], side, now + 1);
+    reveal(c, &jury[1], side, now + 2);
+}
+
+#[test]
+fn a_bad_call_no_longer_escapes_a_silent_judge() {
+    let mut c = judge_went_silent(&THREE);
+    jury_decides(&mut c, Side::Challenger);
+    let a = agent(&c);
+    assert_eq!(status(&c), Status::Overturned);
+    assert_eq!(
+        (a.bond_locked, a.bond_lost, a.calls_lost),
+        (near(0), near(2), 1)
+    );
+}
+
+#[test]
+fn a_jury_can_side_with_the_agent_when_the_judge_was_silent() {
+    let mut c = judge_went_silent(&THREE);
+    jury_decides(&mut c, Side::Agent);
+    assert_eq!(status(&c), Status::Open);
+    assert_eq!(agent(&c).bond_free, milli(8765));
+    let rounds = c.get_rounds(U64(0));
+    assert!(rounds[0].ruling.is_none());
+    assert_eq!(
+        rounds[0].appeal.as_ref().unwrap().decided,
+        Some(Side::Agent)
+    );
+}
+
+#[test]
+fn if_the_stand_in_jury_runs_out_of_time_both_sides_are_refunded() {
+    let mut c = judge_went_silent(&THREE);
+    let until = c
+        .get_claim(U64(0))
+        .unwrap()
+        .appeal
+        .as_ref()
+        .unwrap()
+        .jury_until
+        .0;
+    as_("anyone.near", near(0), until);
+    c.finalize(U64(0));
+    let a = agent(&c);
+    assert_eq!(status(&c), Status::Void);
+    assert_eq!((a.bond_free, a.bond_locked), (milli(9965), near(0)));
+    assert_eq!(c.active_count(), 0);
+}
+
+#[test]
+fn too_few_jurors_still_means_a_refund() {
+    let c = judge_went_silent(&["j1.near", "j2.near"]);
+    assert_eq!(status(&c), Status::Void);
+}
+
+#[test]
+#[should_panic(expected = "Close this case directly from your own account")]
+fn a_contract_cannot_pick_when_a_silent_judges_jury_is_drawn() {
+    let mut c = with_jurors(timed_out(), &THREE);
+    let end = 300 + c.config.late_ruling_window.0;
+    let mut b = VMContextBuilder::new();
+    b.current_account_id(CONTRACT.parse().unwrap())
+        .predecessor_account_id("grinder.near".parse().unwrap())
+        .signer_account_id("anyone.near".parse().unwrap())
+        .block_timestamp(end)
+        .random_seed([7; 32]);
+    testing_env!(b.build());
+    c.finalize(U64(0));
+}
+
+#[test]
+fn a_failed_yield_callback_cannot_strand_a_case() {
+    let mut c = setup();
+    as_(CHALLENGER, stake_deposit(), 5);
+    c.challenge(U64(0), "evidence".into());
+    // on_ruling never ran. Nothing is due until long after any yield would have ended.
+    as_("anyone.near", near(0), 5 + HOUR - 1);
+    assert!(c.get_due(None).is_empty());
+    as_("anyone.near", near(0), 5 + HOUR);
+    assert_eq!(c.get_due(None).len(), 1);
+    c.finalize(U64(0));
+    assert_eq!(status(&c), Status::Void);
+    assert!(c.get_waiting().is_empty());
+}
+
+// ---- who can sit, and what a ruling must carry ----
+
+#[test]
+fn the_account_a_call_is_about_cannot_sit_on_its_jury() {
+    let subject = "free-airdrop-claim.near";
+    let (c, jury) = appealed(&[subject, "j1.near", "j2.near", "j3.near"]);
+    assert!(jury.iter().all(|j| j.as_str() != subject));
+    assert_eq!(
+        c.get_claim(U64(0))
+            .unwrap()
+            .appeal
+            .as_ref()
+            .unwrap()
+            .jury
+            .len(),
+        3
+    );
+}
+
+#[test]
+#[should_panic(expected = "The attestation must be the proof's hash")]
+fn a_ruling_must_carry_the_proof_it_names() {
+    let mut c = timed_out();
+    as_(JUDGE, near(0), 400);
+    c.submit_ruling(U64(0), ruling(Side::Challenger), "some other proof".into());
+}
+
+#[test]
+#[should_panic(expected = "Proof must be 1 byte to 32 KB")]
+fn a_ruling_cannot_skip_its_proof() {
+    let mut c = timed_out();
+    as_(JUDGE, near(0), 400);
+    c.submit_ruling(U64(0), ruling(Side::Challenger), String::new());
+}
+
+// ---- upgrades wait, in public ----
+
+const NEW_CODE: &[u8] = b"new contract code";
+
+fn apply_as_anyone(c: &mut Contract, code: &[u8], now: u64) {
+    let mut b = VMContextBuilder::new();
+    b.current_account_id(CONTRACT.parse().unwrap())
+        .predecessor_account_id("anyone.near".parse().unwrap())
+        .signer_account_id("anyone.near".parse().unwrap())
+        .block_timestamp(now);
+    let mut context = b.build();
+    context.input = code.to_vec().into();
+    testing_env!(context);
+    c.apply_upgrade().detach();
+}
+
+/// The owner announces `NEW_CODE` at time 100.
+fn upgrade_proposed() -> Contract {
+    let mut c = setup();
+    as_(CONTRACT, near(0), 100);
+    let hash = hex_encode(&env::sha256(NEW_CODE));
+    c.propose_upgrade(hash, "migrate".into(), "{}".into());
+    c
+}
+
+#[test]
+#[should_panic(expected = "Only the owner can propose an upgrade")]
+fn only_the_owner_proposes_an_upgrade() {
+    let mut c = setup();
+    as_(AGENT, near(0), 100);
+    c.propose_upgrade("0".repeat(64), "migrate".into(), "{}".into());
+}
+
+#[test]
+#[should_panic(expected = "still waiting out its delay")]
+fn an_upgrade_cannot_skip_its_delay() {
+    let mut c = upgrade_proposed();
+    let opens = c.get_pending_upgrade().unwrap().apply_after.0;
+    apply_as_anyone(&mut c, NEW_CODE, opens - 1);
+}
+
+#[test]
+#[should_panic(expected = "doesn't match the announced hash")]
+fn an_upgrade_must_be_the_announced_code() {
+    let mut c = upgrade_proposed();
+    let opens = c.get_pending_upgrade().unwrap().apply_after.0;
+    apply_as_anyone(&mut c, b"other code", opens);
+}
+
+#[test]
+fn an_announced_upgrade_applies_after_its_delay() {
+    let mut c = upgrade_proposed();
+    let delay = 2 * DAY + 2 * DAY + c.config.late_ruling_window.0;
+    let opens = c.get_pending_upgrade().unwrap().apply_after.0;
+    assert_eq!(opens, 100 + delay);
+    apply_as_anyone(&mut c, NEW_CODE, opens);
+    assert!(c.get_pending_upgrade().is_none());
+}
+
+#[test]
+#[should_panic(expected = "No upgrade is waiting")]
+fn a_cancelled_upgrade_cannot_be_applied() {
+    let mut c = upgrade_proposed();
+    let opens = c.get_pending_upgrade().unwrap().apply_after.0;
+    as_(CONTRACT, near(0), 200);
+    c.cancel_upgrade();
+    apply_as_anyone(&mut c, NEW_CODE, opens);
+}
+
+#[test]
+fn a_sealed_vote_can_be_read_and_shows_no_side() {
+    let (mut c, jury) = appealed(&THREE);
+    assert_eq!(c.get_commitment(U64(0), jury[0].clone()), None);
+    commit(&mut c, &jury[0], Side::Agent, 30);
+    assert_eq!(
+        c.get_commitment(U64(0), jury[0].clone()),
+        Some(hex(&commitment(0, &jury[0], Side::Agent, SALT)))
+    );
 }

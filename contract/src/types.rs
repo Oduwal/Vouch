@@ -48,7 +48,7 @@ pub enum Status {
     Held,
     /// The call was wrong. The challenger took the bond.
     Overturned,
-    /// The judge never answered. Both sides were refunded.
+    /// Neither the judge nor a jury decided. Both sides were refunded.
     Void,
 }
 
@@ -183,6 +183,28 @@ pub struct Config {
     pub challenge_fee: NearToken,
     pub appeal_storage_fee: NearToken,
     pub juror_fee: NearToken,
+}
+
+/// A challenge the agent won, kept after the call reopens to anyone else with a better case.
+#[near(serializers = [json, borsh])]
+#[derive(Clone, Debug)]
+pub struct Round {
+    pub challenge: Challenge,
+    /// None if the judge never ruled and a jury took the case.
+    pub ruling: Option<Ruling>,
+    pub appeal: Option<Appeal>,
+}
+
+/// A code change waiting out its delay, so anyone who dislikes it can leave first.
+#[near(serializers = [json, borsh])]
+#[derive(Clone, Debug)]
+pub struct PendingUpgrade {
+    /// sha256 of the new contract's code, as hex.
+    pub code_hash: String,
+    /// The new code's migration, run in the same step as the deploy.
+    pub migrate_method: String,
+    pub migrate_args: String,
+    pub apply_after: U64,
 }
 
 /// A config change waiting out its delay, so it can't change the terms of a case already running.

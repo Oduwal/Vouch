@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CONTRACT_ID, formatNear, minStake, nanosToMs, phaseOf, view, type Agent, type Claim, type Config, type Juror } from "../../lib/vouch";
+import { CONTRACT_ID, formatNear, minStake, nanosToMs, phaseOf, view, type Agent, type Claim, type Config, type Juror, type Round } from "../../lib/vouch";
 import { Ticket, type TicketData } from "../Ticket";
 import { AppealPanel, JuryPanel } from "./AppealPanels";
 import { ChallengeForm } from "./ChallengeForm";
@@ -33,17 +33,19 @@ function caseSteps(claim: Claim, now: number): Step[] {
   steps.push(
     ruling
       ? { label: `Ruled for the ${ruling.winner}`, detail: formatDate(ruling.ruled_at), state: "done" }
-      : { label: "Judge deciding", detail: "Usually under a minute", state: "now" },
+      : appeal
+        ? { label: "No ruling came", detail: "A jury took the case", state: "done" }
+        : { label: "Judge deciding", detail: "Usually under a minute", state: "now" },
   );
-  if (ruling) {
-    const decided = status === "held" || status === "overturned";
+  const decided = status === "held" || status === "overturned";
+  if (appeal) {
     steps.push(
-      appeal
-        ? decided
-          ? { label: appeal.decided ? `Jury sided with the ${appeal.decided}` : "Jury reached no majority", detail: `${appeal.votes.length} of ${appeal.jury.length} votes cast`, state: "done" }
-          : { label: "Jury hearing the appeal", detail: `until ${formatDate(appeal.jury_until)}`, state: "now" }
-        : { label: decided ? "Appeal window closed" : "Open to appeal", detail: `${decided ? "" : "until "}${formatDate(ruling.appeal_until)}`, state: decided ? "done" : "now" },
+      decided
+        ? { label: appeal.decided ? `Jury sided with the ${appeal.decided}` : "Jury reached no majority", detail: `${appeal.votes.length} of ${appeal.jury.length} votes cast`, state: "done" }
+        : { label: ruling ? "Jury hearing the appeal" : "Jury hearing the case", detail: `until ${formatDate(appeal.jury_until)}`, state: "now" },
     );
+  } else if (ruling) {
+    steps.push({ label: decided ? "Appeal window closed" : "Open to appeal", detail: `${decided ? "" : "until "}${formatDate(ruling.appeal_until)}`, state: decided ? "done" : "now" });
   }
   steps.push({
     label: status === "held" ? "Held" : status === "overturned" ? "Overturned" : "Final",
@@ -75,16 +77,42 @@ function CaseTimeline({ steps }: { steps: Step[] }) {
   );
 }
 
-function Outcome({ claim, config, jurors, now, onDone }: { claim: Claim; config: Config; jurors: Juror[] | null; now: number; onDone: () => void }) {
+// Challenges the agent already beat. Losing one doesn't clear a call, so anyone else can still bring theirs.
+function PastRounds({ rounds }: { rounds: Round[] }) {
+  if (!rounds.length) return null;
+  return (
+    <section aria-labelledby="rounds-title" className="bg-surface p-5">
+      <h2 id="rounds-title" className="text-[1rem] font-semibold">Earlier challenges</h2>
+      <p className="mt-1 max-w-[65ch] text-[0.875rem] text-muted">The agent won these and took each stake. That doesn&apos;t clear the call, so it stayed open to anyone else.</p>
+      <ol className="mt-3 space-y-4">
+        {rounds.map(({ challenge, ruling, appeal }) => (
+          <li key={challenge.filed_at} className="text-[0.875rem]">
+            <p className="font-medium">
+              <span translate="no">{challenge.challenger}</span>, {formatNear(challenge.stake)} NEAR, {formatDate(challenge.filed_at)}
+            </p>
+            <p className="mt-0.5 max-w-[65ch] whitespace-pre-wrap break-words">{challenge.evidence}</p>
+            {ruling && <p className="mt-1 max-w-[65ch] whitespace-pre-wrap break-words text-muted">Judge: {ruling.summary}</p>}
+            {appeal?.decided && <p className="mt-1 text-muted">The jury sided with the {appeal.decided}.</p>}
+            {ruling && <p className="mt-1 break-all font-mono text-[0.75rem] text-muted" translate="no">{ruling.attestation}</p>}
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+function Outcome({ claim, config, jurors, rounds, now, onDone }: { claim: Claim; config: Config; jurors: Juror[] | null; rounds: Round[]; now: number; onDone: () => void }) {
   const { challenge, ruling, appeal, status } = claim;
   let line = "";
-  if (status === "open") line = "Nobody challenged in time. The bond returns to the agent's pool when the claim is closed.";
-  if (status === "challenged") line = `The contract is holding this case for the judge. If no ruling lands within about ${Math.round(nanosToMs(config.late_ruling_window) / 60_000) + 2} minutes, the bond and the stake go back.`;
+  if (status === "open") line = `${rounds.length ? "Nobody else challenged" : "Nobody challenged"} in time. The bond returns to the agent's pool when the claim is closed.`;
+  if (status === "challenged") line = `The contract is holding this case for the judge. If no ruling lands within about ${Math.round(nanosToMs(config.late_ruling_window) / 60_000) + 2} minutes, a jury takes the case, or the bond and the stake go back if there aren't enough jurors.`;
   if (status === "ruled" && ruling) line = `This becomes final in ${timeLeft(Math.max(0, nanosToMs(ruling.appeal_until) - now))} unless the losing side appeals.`;
-  if (status === "appealed" && appeal) line = `A jury of ${appeal.jury.length} is hearing the appeal, with ${appeal.votes.length} of ${appeal.jury.length} votes in. If it can't reach a majority by ${formatDate(appeal.jury_until)}, the judge's ruling stands.`;
-  if (status === "held") line = challenge ? `The call held. ${claim.agent} kept its bond and took the challenger's ${formatNear(challenge.stake)} NEAR stake.` : `The call held. Nobody challenged it and the bond went back to ${claim.agent}'s pool.`;
+  if (status === "appealed" && appeal) line = ruling
+    ? `A jury of ${appeal.jury.length} is hearing the appeal, with ${appeal.votes.length} of ${appeal.jury.length} votes in. If it can't reach a majority by ${formatDate(appeal.jury_until)}, the judge's ruling stands.`
+    : `The judge gave no ruling, so a jury of ${appeal.jury.length} took the case, with ${appeal.votes.length} of ${appeal.jury.length} votes in. If it can't reach a majority by ${formatDate(appeal.jury_until)}, both sides get their money back.`;
+  if (status === "held") line = challenge ? `The call held. ${claim.agent} kept its bond and took the challenger's ${formatNear(challenge.stake)} NEAR stake.` : rounds.length ? `The call held. ${claim.agent} beat every challenge, took the stakes, and the bond went back to its pool.` : `The call held. Nobody challenged it and the bond went back to ${claim.agent}'s pool.`;
   if (status === "overturned" && challenge) line = `The call was overturned. ${challenge.challenger} received the ${formatNear(claim.bond)} NEAR bond and their stake back.`;
-  if (status === "void" && challenge) line = `The judge gave no ruling in time, so nobody lost anything. The bond went back to ${claim.agent}'s pool and ${challenge.challenger} got their stake back.`;
+  if (status === "void" && challenge) line = `No ruling came in time, so nobody lost anything. The bond went back to ${claim.agent}'s pool and ${challenge.challenger} got their stake back.`;
   if ((status === "held" || status === "overturned") && appeal) {
     line = `${appeal.decided ? `The jury sided with the ${appeal.decided} and its majority split the ${formatNear(appeal.fee)} NEAR fee.` : `The jury reached no majority, so the judge's ruling stood and ${appeal.appellant} got the fee back.`} ${line}`;
   }
@@ -151,6 +179,7 @@ function toTicket(claim: Claim, now: number): TicketData {
 
 export function ClaimDetail({ initial, config, agent, jurors, serverNow }: { initial: Claim; config: Config; agent: Agent | null; jurors: Juror[] | null; serverNow: number }) {
   const [claim, setClaim] = useState(initial);
+  const [rounds, setRounds] = useState<Round[]>([]);
   const [failed, setFailed] = useState(false);
   const now = useNow(serverNow);
   const phase = phaseOf(claim, now);
@@ -158,12 +187,20 @@ export function ClaimDetail({ initial, config, agent, jurors, serverNow }: { ini
 
   const refresh = useCallback(async () => {
     try {
-      const next = await view<Claim | null>("get_claim", { claim_id: initial.id });
+      const [next, past] = await Promise.all([
+        view<Claim | null>("get_claim", { claim_id: initial.id }),
+        view<Round[]>("get_rounds", { claim_id: initial.id }),
+      ]);
       if (next) setClaim(next);
+      setRounds(past);
       setFailed(false);
     } catch {
       setFailed(true);
     }
+  }, [initial.id]);
+
+  useEffect(() => {
+    void view<Round[]>("get_rounds", { claim_id: initial.id }).then(setRounds).catch(() => {});
   }, [initial.id]);
 
   useEffect(() => {
@@ -217,7 +254,9 @@ export function ClaimDetail({ initial, config, agent, jurors, serverNow }: { ini
 
           <CaseTimeline steps={caseSteps(claim, now)} />
 
-          {phase === "open" ? <ChallengeForm claim={claim} config={config} onFiled={refresh} /> : <Outcome claim={claim} config={config} jurors={jurors} now={now} onDone={refresh} />}
+          {phase === "open" ? <ChallengeForm claim={claim} config={config} onFiled={refresh} /> : <Outcome claim={claim} config={config} jurors={jurors} rounds={rounds} now={now} onDone={refresh} />}
+
+          <PastRounds rounds={rounds} />
 
           {failed && (
             <p className="text-[0.8125rem] text-muted">

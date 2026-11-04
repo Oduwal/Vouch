@@ -1,5 +1,5 @@
 // The judge: rules on every challenge the contract is waiting on. If any check fails it does not rule,
-// and the next ping tries again until the late window ends. After that, both sides are refunded.
+// and the next ping tries again until the late window ends. After that, a jury takes the case.
 
 import { TEE_MODEL } from "../llm";
 import { checkAccount } from "../signals";
@@ -27,10 +27,8 @@ export async function judgeWaiting(): Promise<Outcome[]> {
 }
 
 async function judgeClaim(claim: Claim): Promise<Outcome> {
-  const [attestation, facts] = await Promise.all([
-    attestModel(JUDGE_MODEL),
-    checkAccount(claim.subject).catch(() => null),
-  ]);
+  // Without the chain's facts a true challenge could lose for want of proof, so this waits for the next ping.
+  const [attestation, facts] = await Promise.all([attestModel(JUDGE_MODEL), checkAccount(claim.subject)]);
   if (!attestation.trusted.length) {
     const why = attestation.rejected.map((r) => r.reason).join("; ") || "no nodes reported";
     throw new Error(`No model node passed attestation: ${why}`);

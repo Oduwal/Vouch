@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { formatNear, formatWindow, JURY_SIZE, latestClaims, nanosToMs, parseNear, view, type Claim, type Config, type Juror } from "../../lib/vouch";
+import { formatNear, formatWindow, isDemoJuror, JURY_SIZE, latestClaims, nanosToMs, parseNear, view, type Claim, type Config, type Juror } from "../../lib/vouch";
 import { useWallet } from "../../lib/wallet";
 import { formatDate, useNow } from "./format";
 
@@ -157,6 +157,12 @@ export function JuryBoard({ initialJurors, initialClaims, config, serverNow }: {
             : `${jurors.length} of the ${JURY_SIZE} jurors an appeal needs have joined. Until the pool fills, the judge's rulings can't be appealed.`}
       </p>
 
+      {jurors.some((j) => isDemoJuror(j.account)) && (
+        <p className="mt-2 max-w-[65ch] text-[0.875rem] text-muted">
+          The pool includes demo jurors: bots we run, so anyone can try a full appeal. They make their own calls with the TEE model and every vote is on-chain, but they aren&apos;t independent of us. A real deployment would use independent staked jurors.
+        </p>
+      )}
+
       <div className="mt-6 grid items-start gap-4 lg:grid-cols-[2fr_1fr]">
         <div className="grid min-w-0 gap-4">
           <section aria-labelledby="appeals-title" className="bg-surface">
@@ -195,7 +201,10 @@ export function JuryBoard({ initialJurors, initialClaims, config, serverNow }: {
                 <tbody className="tabular-nums">
                   {jurors.map((j) => (
                     <tr key={j.account} className="border-t border-bg">
-                      <td className="break-words px-4 py-2.5 font-medium" translate="no">{j.account}</td>
+                      <td className="break-words px-4 py-2.5">
+                        <span className="font-medium" translate="no">{j.account}</span>
+                        {isDemoJuror(j.account) && <span className="block text-[0.75rem] text-muted">Demo juror (bot)</span>}
+                      </td>
                       <td className="px-4 py-2.5 text-right">{formatNear(j.stake)}</td>
                       <td className="px-4 py-2.5 text-right">{j.votes_cast}</td>
                       <td className="px-4 py-2.5 text-right max-sm:hidden">{j.votes_with_majority}</td>

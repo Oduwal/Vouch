@@ -36,6 +36,19 @@ export type Claim = {
   } | null;
 };
 
+// A challenge the agent beat, kept after the call reopened to anyone else.
+export type Round = { challenge: NonNullable<Claim["challenge"]>; ruling: Claim["ruling"]; appeal: Claim["appeal"] };
+
+// A claim still stands behind its call until it's closed, its window passes, or the judge rules against it.
+export function isLive(claim: Claim) {
+  if (claim.status === "open") return BigInt(claim.challenge_until) > BigInt(Date.now()) * BigInt(1_000_000);
+  if (claim.status === "ruled") return claim.ruling?.winner !== "challenger";
+  return claim.status === "challenged" || claim.status === "appealed";
+}
+
+// Someone has challenged the call and nobody has decided yet.
+export const isDisputed = (claim: Claim) => claim.status === "challenged" || claim.status === "appealed";
+
 export type Agent = {
   account: string;
   bond_free: string;
@@ -77,9 +90,13 @@ export type Juror = {
 
 export const JURY_SIZE = 3;
 
-// The draw skips both parties and the judge, as the contract does.
+// Only the owner of this account can make accounts under it, so nobody else can wear the label.
+const DEMO_JUROR_SUFFIX = ".vouch-demo-jurors.testnet";
+export const isDemoJuror = (account: string) => account.endsWith(DEMO_JUROR_SUFFIX);
+
+// The draw skips both parties, the account the call is about and the judge, as the contract does.
 export function eligibleJurors(jurors: Juror[], claim: Claim, config: Config) {
-  const parties = [claim.agent, claim.challenge?.challenger, config.judge];
+  const parties = [claim.agent, claim.challenge?.challenger, claim.subject, config.judge];
   return jurors.filter((j) => !parties.includes(j.account));
 }
 

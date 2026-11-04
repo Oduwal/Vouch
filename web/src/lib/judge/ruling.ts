@@ -44,7 +44,7 @@ export type SignatureProof = {
 // Names the case inside the signed request, so a signature on one case's answer can't serve another's.
 export const caseRef = (claimId: string) => `${CONTRACT_ID}:claim:${claimId}`;
 
-export async function askJudge(model: string, claim: Claim, facts: Check | null): Promise<Answer> {
+export async function askJudge(model: string, claim: Claim, facts: Check): Promise<Answer> {
   // Random each time, so text written in advance can't guess it and fake the end of its section.
   const boundary = randomBytes(8).toString("hex");
   const untrusted = (value: unknown) => `<untrusted_${boundary}>${JSON.stringify(value)}</untrusted_${boundary}>`;
@@ -55,11 +55,7 @@ export async function askJudge(model: string, claim: Claim, facts: Check | null)
     `call: ${claim.verdict}`,
     `bond_yocto: ${claim.bond}`,
     `posted_at: ${new Date(Number(BigInt(claim.posted_at) / BigInt(1_000_000))).toISOString()}`,
-    `chain_facts: ${JSON.stringify(
-      facts
-        ? { ...facts.facts, signals: facts.reasons.map((r) => `${r.level}: ${r.text}`), read_at: facts.checkedAt }
-        : "Unavailable: the RPC did not answer",
-    )}`,
+    `chain_facts: ${JSON.stringify({ ...facts.facts, signals: facts.reasons.map((r) => `${r.level}: ${r.text}`), read_at: facts.checkedAt })}`,
     `agent_reasons: ${untrusted(claim.reasons)}`,
     `challenger_evidence: ${untrusted(claim.challenge?.evidence ?? "")}`,
   ].join("\n");

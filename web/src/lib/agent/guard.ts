@@ -1,12 +1,12 @@
 // The guard a paying agent wraps around its wallet. Before any NEAR moves, the recipient gets a
 // bonded Vouch call: "block" refuses, "warn" asks a human and pays only on a yes, "allow" pays.
 // It sits below the model, so a prompt-injected agent can choose the wrong recipient but cannot
-// talk its way past the guard.
+// talk its way past the guard. An "allow" someone is disputing also asks a human.
 
 import { nearToYocto, yoctoToNear, type Account } from "near-api-js";
 import { withNonceRetry } from "../nonce";
 import { isAccountId } from "../signals";
-import { parseNear, type Claim } from "../vouch";
+import { isDisputed, isLive, parseNear, type Claim } from "../vouch";
 import type { Vouched } from "./sentinel";
 
 export type Payment = { to: string; amountNear: string; memo?: string };
@@ -58,6 +58,11 @@ export async function guardedPay(payer: Account, payment: Payment, options: Guar
     log("refused: no agent has a bond behind a call on this account");
     return { action: "refused", payment, claim: null, reason: "No bonded call on this account" };
   }
+  // Checked here too, since the call can come from an endpoint over HTTP.
+  if (claim.subject !== to || !isLive(claim)) {
+    log("refused: this is not a live call on this account");
+    return { action: "refused", payment, claim: null, reason: "No live bonded call on this account" };
+  }
   log(
     `vouch: ${claim.verdict.toUpperCase()} by ${claim.agent}, claim #${claim.id}, ` +
       `${yoctoToNear(BigInt(claim.bond), 2)} NEAR bonded` +
@@ -69,7 +74,7 @@ export async function guardedPay(payer: Account, payment: Payment, options: Guar
     log(`refused: Vouch blocks ${to}`);
     return { action: "refused", payment, claim, reason: claim.reasons.join("; ") };
   }
-  if (claim.verdict === "warn" && !(await options.askHuman(payment, claim))) {
+  if ((claim.verdict === "warn" || isDisputed(claim)) && !(await options.askHuman(payment, claim))) {
     log("declined: a human did not approve this warned payment");
     return { action: "declined", payment, claim, reason: "A human did not approve the payment" };
   }
