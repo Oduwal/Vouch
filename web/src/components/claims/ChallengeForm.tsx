@@ -41,7 +41,9 @@ export function ChallengeForm({ claim, config, onFiled }: { claim: Claim; config
     setState("signing");
     try {
       if (!accountId) await connect();
-      await call("challenge", { claim_id: claim.id, evidence: evidence.trim() }, (stakeYocto as bigint) + BigInt(config.challenge_fee), CHALLENGE_TGAS);
+      const nudge = window.setInterval(() => void fetch("/api/judge", { method: "POST" }).catch(() => {}), 15_000);
+      const stop = () => window.clearInterval(nudge);
+      await call("challenge", { claim_id: claim.id, evidence: evidence.trim() }, (stakeYocto as bigint) + BigInt(config.challenge_fee), CHALLENGE_TGAS).finally(stop);
       // The judge rules as soon as it hears; the one-minute ping is the backstop.
       void fetch("/api/judge", { method: "POST" }).catch(() => {});
       onFiled();

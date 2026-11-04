@@ -5,6 +5,7 @@
 import { KeyPair, nearToYocto, type Account } from "near-api-js";
 import { askTeeJson } from "../llm";
 import { withNonceRetry } from "../nonce";
+import { TESTNET_RPC } from "../vouch";
 import { AGENT_POLICY, ATTACK_AMOUNT_NEAR, inbox, type AttackEvent, type Invoice, type RunResult } from "./attack-data";
 import { guardedPay, type Decision, type GuardOptions, type Payment } from "./guard";
 
@@ -37,16 +38,22 @@ function toResult(decision: Decision): RunResult {
 }
 
 // The attacker opens a brand-new account with a believable name, so only the chain can give it away.
-// A name can only be created once, which makes this a lock too: of many runs racing for one name, the
-// chain lets exactly one through.
+// A name can only be created once, which makes this a lock too: of many runs racing for one name, only
+// one gets its key on the account. A losing create doesn't fail on testnet, so that key is what's checked.
 export async function createAttacker(payer: Account, attacker: string) {
-  await withNonceRetry(() =>
-    payer.createAccount({
-      newAccountId: attacker,
-      publicKey: KeyPair.fromRandom("ed25519").getPublicKey(),
-      nearToTransfer: nearToYocto("0.01"),
+  const publicKey = KeyPair.fromRandom("ed25519").getPublicKey();
+  await withNonceRetry(() => payer.createAccount({ newAccountId: attacker, publicKey, nearToTransfer: nearToYocto("0.01") }));
+  const res = await fetch(TESTNET_RPC, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: "vouch",
+      method: "query",
+      params: { request_type: "view_access_key", finality: "optimistic", account_id: attacker, public_key: publicKey.toString() },
     }),
-  );
+  }).then((r) => r.json());
+  if (!res.result || res.result.error) throw new Error("Another run already took this account");
 }
 
 export async function runAttack(

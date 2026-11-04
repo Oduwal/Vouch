@@ -1,8 +1,8 @@
 // Re-checks a judge's ruling from the chain alone, trusting nothing Vouch's servers say. The contract
 // keeps only a hash of each proof, and the proof itself sits in the judge's transaction.
 //
-// Run: pnpm verify:ruling <claim id> <transaction hash>
-// Needs no keys. The transaction hash is on the explorer, under the contract's submit_ruling calls.
+// Run: pnpm verify:ruling <claim id> [transaction hash]
+// Needs no keys. Without a hash, it looks through what the judge has signed for the ruling.
 
 import { getCollateralAndVerify } from "@phala/dcap-qvl";
 import { verifyMessage } from "ethers";
@@ -11,8 +11,34 @@ import { caseRef } from "../src/lib/judge/ruling";
 import { firstJsonObject } from "../src/lib/llm";
 import { CONTRACT_ID, TESTNET_RPC, view, type Claim, type Config } from "../src/lib/vouch";
 
-const [claimId, txHash] = process.argv.slice(2);
-if (!claimId || !txHash) throw new Error("Usage: pnpm verify:ruling <claim id> <transaction hash>");
+const [claimId, givenHash] = process.argv.slice(2);
+if (!claimId) throw new Error("Usage: pnpm verify:ruling <claim id> [transaction hash]");
+
+// Looks through what the judge has signed for the call that ruled on this claim.
+async function findRulingTx(judge: string): Promise<string> {
+  const listed = await fetch("https://tx.test.fastnear.com/v0/account", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ account_id: judge, is_signer: true, limit: 200 }),
+  }).then((r) => r.json());
+  const hashes: string[] = (listed.account_txs ?? []).map((t: { transaction_hash: string }) => t.transaction_hash);
+  for (const hash of hashes) {
+    const res = await readTx(hash, judge);
+    const call = res.result?.transaction?.actions?.[0]?.FunctionCall;
+    if (call?.method_name !== "submit_ruling") continue;
+    const args = JSON.parse(Buffer.from(call.args, "base64").toString("utf8"));
+    if (String(args.claim_id) === claimId) return hash;
+  }
+  throw new Error("Couldn't find the ruling's transaction. Pass its hash.");
+}
+
+function readTx(hash: string, sender: string) {
+  return fetch(TESTNET_RPC, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tx", params: { tx_hash: hash, sender_account_id: sender, wait_until: "FINAL" } }),
+  }).then((r) => r.json());
+}
 
 let failed = 0;
 function check(ok: boolean, what: string) {
@@ -24,11 +50,8 @@ async function main() {
   const [claim, config] = await Promise.all([view<Claim | null>("get_claim", { claim_id: claimId }), view<Config>("get_config")]);
   if (!claim?.ruling) throw new Error(`Claim ${claimId} has no ruling`);
 
-  const res = await fetch(TESTNET_RPC, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tx", params: { tx_hash: txHash, sender_account_id: config.judge, wait_until: "FINAL" } }),
-  }).then((r) => r.json());
+  const txHash = givenHash ?? (await findRulingTx(config.judge));
+  const res = await readTx(txHash, config.judge);
   const tx = res.result?.transaction;
   if (!tx) throw new Error(`Couldn't read transaction ${txHash}: ${JSON.stringify(res.error).slice(0, 200)}`);
   const call = tx.actions?.[0]?.FunctionCall;
