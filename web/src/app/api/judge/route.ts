@@ -13,7 +13,7 @@ const MIN_GAP_MS = 10_000;
 let lastRun = 0;
 
 // What a caller sees. The detail can name settings or echo a provider's error, so it stays in the logs.
-function reported<T extends object>(items: T[], label: string) {
+function reported(items: readonly object[], label: string) {
   return items.map((item) => {
     const { error } = item as { error?: string };
     if (!error) return item;
