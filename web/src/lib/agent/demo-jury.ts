@@ -12,8 +12,6 @@ import { CONTRACT_ID, JURY_SIZE, TESTNET_RPC, isDemoJuror, latestClaims, nanosTo
 
 const SIDES: Side[] = ["agent", "challenger"];
 const MAJORITY = Math.floor(JURY_SIZE / 2) + 1;
-// Keeps one ping well inside the route's time limit. The next ping picks up the rest.
-const MAX_CASES_PER_PING = 2;
 const MODEL_TIMEOUT_MS = 30_000;
 // So three jurors on one case can see it differently.
 const JUROR_TEMPERATURE = 0.7;
@@ -116,16 +114,19 @@ async function hearCase(claim: Claim, config: Config, key: string): Promise<Juro
   return actions;
 }
 
-// Moves along every appeal a demo juror sits on. Does nothing where the key isn't set.
-export async function runDemoJurors(): Promise<JurorAction[]> {
+// Moves along the appeals a demo juror sits on, oldest first so a crowd of new ones can't starve them. No
+// new case starts after `startBefore`, and the next ping picks up the rest. Does nothing where the key
+// isn't set.
+export async function runDemoJurors(startBefore = Infinity): Promise<JurorAction[]> {
   const key = process.env.DEMO_JUROR_KEY;
   if (!key) return [];
   const [claims, config] = await Promise.all([latestClaims(), view<Config>("get_config")]);
-  const cases = claims.filter(
-    (c) => c.status === "appealed" && c.appeal && nanosToMs(c.appeal.jury_until) > Date.now() && c.appeal.jury.some(isDemoJuror),
-  );
+  const cases = claims
+    .filter((c) => c.status === "appealed" && c.appeal && nanosToMs(c.appeal.jury_until) > Date.now() && c.appeal.jury.some(isDemoJuror))
+    .sort((a, b) => nanosToMs(a.appeal?.jury_until ?? "0") - nanosToMs(b.appeal?.jury_until ?? "0"));
   const actions: JurorAction[] = [];
-  for (const claim of cases.slice(0, MAX_CASES_PER_PING)) {
+  for (const claim of cases) {
+    if (Date.now() >= startBefore) break;
     try {
       actions.push(...(await hearCase(claim, config, key)));
     } catch (e) {

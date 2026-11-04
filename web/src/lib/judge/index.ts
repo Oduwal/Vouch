@@ -13,10 +13,14 @@ const MAX_PROOF_BYTES = 32 * 1024;
 
 export const JUDGE_MODEL = TEE_MODEL;
 
-export async function judgeWaiting(): Promise<Outcome[]> {
+// Rules on the oldest challenges first, since their time runs out first. No new case starts after
+// `startBefore`, so a crowd can't use up the ping before the jurors and closing get a turn.
+export async function judgeWaiting(startBefore = Infinity): Promise<Outcome[]> {
   const waiting = await view<Claim[]>("get_waiting");
+  waiting.sort((a, b) => Number(BigInt(a.challenge?.filed_at ?? "0") - BigInt(b.challenge?.filed_at ?? "0")));
   const outcomes: Outcome[] = [];
   for (const claim of waiting) {
+    if (Date.now() >= startBefore) break;
     try {
       outcomes.push(await judgeClaim(claim));
     } catch (e) {
