@@ -44,23 +44,27 @@ export type SignatureProof = {
 // Names the case inside the signed request, so a signature on one case's answer can't serve another's.
 export const caseRef = (claimId: string) => `${CONTRACT_ID}:claim:${claimId}`;
 
-export async function askJudge(model: string, claim: Claim, facts: Check): Promise<Answer> {
-  // Random each time, so text written in advance can't guess it and fake the end of its section.
-  const boundary = randomBytes(8).toString("hex");
+// The exact bytes the model is asked. The verifier rebuilds them from the chain, so the system prompt and
+// everything but the chain facts can be checked, and changing this breaks checking older rulings.
+export function buildRequest(
+  model: string,
+  claim: Pick<Claim, "id" | "subject" | "verdict" | "bond" | "posted_at" | "reasons">,
+  evidence: string,
+  { boundary, requestId, chainFacts }: { boundary: string; requestId: string; chainFacts: string },
+) {
   const untrusted = (value: unknown) => `<untrusted_${boundary}>${JSON.stringify(value)}</untrusted_${boundary}>`;
   const caseFile = [
     `case: ${caseRef(claim.id)}`,
-    `request_id: ${randomBytes(16).toString("hex")}`,
+    `request_id: ${requestId}`,
     `account: ${claim.subject}`,
     `call: ${claim.verdict}`,
     `bond_yocto: ${claim.bond}`,
     `posted_at: ${new Date(Number(BigInt(claim.posted_at) / BigInt(1_000_000))).toISOString()}`,
-    `chain_facts: ${JSON.stringify({ ...facts.facts, signals: facts.reasons.map((r) => `${r.level}: ${r.text}`), read_at: facts.checkedAt })}`,
+    `chain_facts: ${chainFacts}`,
     `agent_reasons: ${untrusted(claim.reasons)}`,
-    `challenger_evidence: ${untrusted(claim.challenge?.evidence ?? "")}`,
+    `challenger_evidence: ${untrusted(evidence)}`,
   ].join("\n");
-  // This exact string is sent and hashed, so it must not be rebuilt later.
-  const requestBody = JSON.stringify({
+  return JSON.stringify({
     model,
     messages: [
       { role: "system", content: systemPrompt(boundary) },
@@ -69,6 +73,16 @@ export async function askJudge(model: string, claim: Claim, facts: Check): Promi
     temperature: 0,
     max_tokens: MAX_TOKENS,
     response_format: { type: "json_object" },
+  });
+}
+
+export async function askJudge(model: string, claim: Claim, facts: Check): Promise<Answer> {
+  // This exact string is sent and hashed.
+  const requestBody = buildRequest(model, claim, claim.challenge?.evidence ?? "", {
+    // Random each time, so text written in advance can't guess it and fake the end of its section.
+    boundary: randomBytes(8).toString("hex"),
+    requestId: randomBytes(16).toString("hex"),
+    chainFacts: JSON.stringify({ ...facts.facts, signals: facts.reasons.map((r) => `${r.level}: ${r.text}`), read_at: facts.checkedAt }),
   });
 
   const res = await fetch(`${NEARAI_API}/chat/completions`, {
@@ -108,6 +122,10 @@ export async function verifyAnswer(answer: Answer, attestation: Attestation): Pr
 
   const signer = verifyMessage(sig.text, sig.signature).toLowerCase();
   if (signer !== sig.signing_address.toLowerCase()) throw new Error("Signature was not made by its stated signer");
+  // Nodes of a model can share a key, so a failing node with this key means the key can't be relied on.
+  if (attestation.rejected.some((n) => n.signingAddress?.toLowerCase() === signer)) {
+    throw new Error("A node with this signing key failed attestation");
+  }
   if (!attestation.trusted.some((n) => n.signingAddress.toLowerCase() === signer)) {
     throw new Error("Answer was signed by a node that did not pass attestation");
   }

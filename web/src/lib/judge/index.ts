@@ -31,8 +31,9 @@ export async function judgeWaiting(startBefore = Infinity): Promise<Outcome[]> {
 }
 
 async function judgeClaim(claim: Claim): Promise<Outcome> {
-  // Without the chain's facts a true challenge could lose for want of proof, so this waits for the next ping.
-  const [attestation, facts] = await Promise.all([attestModel(JUDGE_MODEL), checkAccount(claim.subject)]);
+  // If the account can't be read at all, this waits for the next ping. A fact an indexer won't give shows as
+  // null. Reports stay out: the call being ruled on may be one, and they're someone's say-so, not chain facts.
+  const [attestation, facts] = await Promise.all([attestModel(JUDGE_MODEL), checkAccount(claim.subject, { reports: false })]);
   if (!attestation.trusted.length) {
     const why = attestation.rejected.map((r) => r.reason).join("; ") || "no nodes reported";
     throw new Error(`No model node passed attestation: ${why}`);
@@ -56,12 +57,9 @@ async function judgeClaim(claim: Claim): Promise<Outcome> {
       request: answer.requestBody,
       response: answer.responseBody,
     });
-  let proof = buildProof(signer);
-  // A long answer could leave no room for the raw evidence. The signed answer matters most, so the
-  // evidence goes first, leaving its hash and the checks' results.
-  if (Buffer.byteLength(proof, "utf8") > MAX_PROOF_BYTES) {
-    proof = buildProof({ ...signer, intelQuote: undefined, gpuToken: undefined });
-  }
+  const proof = buildProof(signer);
+  // Never rule without the evidence. The next ping asks again, and after that a jury takes the case.
+  if (Buffer.byteLength(proof, "utf8") > MAX_PROOF_BYTES) throw new Error("This answer is too long to prove on-chain");
 
   return submitRuling(
     claim.id,

@@ -41,7 +41,7 @@ export function AppealPanel({ claim, config, jurors, now, onDone }: { claim: Cla
   const fee = formatNear(config.appeal_fee);
 
   if (!open) {
-    return <p className="mt-5 text-[0.875rem] text-muted">The appeal window has closed. The ruling becomes final when the claim is closed.</p>;
+    return <p className="mt-5 text-[0.875rem] text-muted">The appeal window has closed. The ruling takes effect when the claim is closed.</p>;
   }
 
   return (
@@ -163,7 +163,7 @@ export function JuryPanel({ claim, config, now, onDone }: { claim: Claim; config
       <ul className="mt-2 text-[0.875rem]">
         {appeal.jury.map((juror) => {
           const cast = appeal.votes.find((v) => v.juror === juror);
-          const status = cast ? `Voted for the ${cast.side}` : sealed.includes(juror) ? "Vote sealed" : open ? "Has not voted" : "Did not vote";
+          const status = cast ? `Voted for the ${cast.side}` : sealed.includes(juror) ? "Vote sealed" : open ? "Has not voted" : "Not counted";
           return (
             <li key={juror} className="flex flex-wrap justify-between gap-x-4 py-1">
               <span className="min-w-0 break-words">

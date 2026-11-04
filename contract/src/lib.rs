@@ -31,6 +31,13 @@ const REOPEN_WINDOW: u64 = 6 * HOUR;
 /// A challenge whose yield never reported back can be closed this long after it was filed. Far longer
 /// than any yield, so it only covers a callback that failed.
 const STUCK_AFTER: u64 = HOUR;
+/// How long a report stands, once nobody has overturned it.
+const REPORT_MEMORY: u64 = 30 * 24 * HOUR;
+const MAX_REPORTS_KEPT: usize = 20;
+/// `get_reports` answers a wallet with limited gas, and one report that stands is already enough.
+const MAX_REPORTS_SHOWN: usize = 5;
+/// However short the windows are set, a change of config or code gives this much notice.
+const MIN_OWNER_DELAY: u64 = 48 * HOUR;
 
 // New keys only ever go on the end: each key's position names its stored data.
 #[near(serializers = [borsh])]
@@ -50,6 +57,7 @@ enum StorageKey {
     Commits,
     Owed,
     Rounds,
+    Reports,
 }
 
 #[near(contract_state)]
@@ -82,6 +90,8 @@ pub struct Contract {
     /// Challenges each open claim has already beaten.
     rounds: LookupMap<u64, Vec<Round>>,
     pending_upgrade: Option<PendingUpgrade>,
+    /// The shared blocklist: each account's `block` calls, from any agent. Later calls can't erase them.
+    reports: LookupMap<AccountId, Vec<u64>>,
 }
 
 fn default_config(judge: AccountId) -> Config {
@@ -130,6 +140,7 @@ impl Contract {
             pending_config: None,
             rounds: LookupMap::new(StorageKey::Rounds),
             pending_upgrade: None,
+            reports: LookupMap::new(StorageKey::Reports),
         }
     }
 
@@ -336,7 +347,8 @@ impl Contract {
     // ---- claims ----
 
     /// Make a call on `subject` and lock `bond` from your pool behind it. The claim is kept forever,
-    /// so its storage fee comes out of the pool and doesn't come back.
+    /// so its storage fee comes out of the pool and doesn't come back. A `block` is also a report on
+    /// the shared blocklist, with `reasons` as its evidence: anyone can challenge it and take the bond.
     /// Takes no deposit, so an agent can sign it with a function-call key scoped to this contract.
     pub fn post_claim(
         &mut self,
@@ -385,6 +397,21 @@ impl Contract {
 
         let id = u64::from(self.claims.len());
         let now = env::block_timestamp();
+        // One live call per agent per account, unless the new one is stricter. So a burst of requests
+        // can't lock the same bond many times, and an agent can't bury a dispute under a softer call.
+        let own = self
+            .agent_latest
+            .get(&(account.clone(), subject.clone()))
+            .and_then(|old| self.claims.get(claim_index(*old)?));
+        require!(
+            own.is_none_or(|old| !is_live(old, now)
+                || old
+                    .ruling
+                    .as_ref()
+                    .is_some_and(|r| r.winner == Side::Challenger)
+                || verdict.strictness() > old.verdict.strictness()),
+            "You already have a live call on this account"
+        );
         let claim = Claim {
             id: U64(id),
             agent: account.clone(),
@@ -411,6 +438,9 @@ impl Contract {
                     || verdict.strictness() > old.verdict.strictness()
             });
         self.claims.push(claim);
+        if verdict == Level::Block {
+            add_report(&mut self.reports, &self.claims, subject.clone(), id, now);
+        }
         self.active.insert(id);
         self.agent_latest.insert((account, subject.clone()), id);
         if replaces {
@@ -542,6 +572,36 @@ impl Contract {
         self.active.len()
     }
 
+    /// The shared blocklist on one account: `block` calls that still stand, those with a bond still
+    /// at risk first, then newest first. A report stops standing when it's ruled wrong, or after 30 days.
+    /// Readers should treat a report whose bond is at risk as a block, and a closed one as a reason to
+    /// ask a human: nobody can challenge it any more, so it shouldn't be able to block on its own.
+    pub fn get_reports(&self, subject: AccountId) -> Vec<&Claim> {
+        let now = env::block_timestamp();
+        let mut standing: Vec<&Claim> = self.reports.get(&subject).map_or(vec![], |ids| {
+            ids.iter()
+                .rev()
+                .filter_map(|id| self.claims.get(claim_index(*id)?))
+                .filter(|claim| report_stands(claim, now))
+                .collect()
+        });
+        standing.sort_by_key(|claim| !is_live(claim, now));
+        standing.truncate(MAX_REPORTS_SHOWN);
+        standing
+    }
+
+    /// Claims under appeal, so a juror can find its cases however many claims came after them. Looks
+    /// only at claims that aren't final yet. Page with `from_index` until empty.
+    pub fn get_appeals(&self, from_index: Option<u32>) -> Vec<&Claim> {
+        self.active
+            .iter()
+            .skip(from_index.unwrap_or(0) as usize)
+            .take(MAX_DUE_SCAN)
+            .filter_map(|id| self.claims.get(claim_index(*id)?))
+            .filter(|claim| claim.status == Status::Appealed)
+            .collect()
+    }
+
     pub fn get_agent(&self, account: AccountId) -> Option<&Agent> {
         self.agents.get(&account)
     }
@@ -649,6 +709,44 @@ fn claim_index(id: u64) -> Option<u32> {
     u32::try_from(id).ok()
 }
 
+/// A report never pushes out one that still stands, or a scammer could flush honest reports off the
+/// list with its own. When the list is full of standing reports, the account is blocked already.
+fn add_report(
+    reports: &mut LookupMap<AccountId, Vec<u64>>,
+    claims: &Vector<Claim>,
+    subject: AccountId,
+    id: u64,
+    now: u64,
+) {
+    let mut ids = reports.get(&subject).cloned().unwrap_or_default();
+    if ids.len() >= MAX_REPORTS_KEPT {
+        ids.retain(|old| {
+            claim_index(*old)
+                .and_then(|i| claims.get(i))
+                .is_some_and(|claim| report_stands(claim, now))
+        });
+    }
+    if ids.len() < MAX_REPORTS_KEPT {
+        ids.push(id);
+        reports.insert(subject, ids);
+    }
+}
+
+fn report_stands(claim: &Claim, now: u64) -> bool {
+    if now >= claim.posted_at.0.saturating_add(REPORT_MEMORY) {
+        return false;
+    }
+    match claim.status {
+        Status::Overturned | Status::Void => false,
+        // Ruled wrong stays wrong while an appeal runs. A jury standing in for a silent judge has no ruling.
+        Status::Ruled | Status::Appealed => claim
+            .ruling
+            .as_ref()
+            .is_none_or(|r| r.winner != Side::Challenger),
+        Status::Open | Status::Challenged | Status::Held => true,
+    }
+}
+
 /// Whether a claim still stands behind its call.
 fn is_live(claim: &Claim, now: u64) -> bool {
     match claim.status {
@@ -680,6 +778,7 @@ impl Contract {
             .saturating_add(self.config.late_ruling_window.0)
             .saturating_add(self.config.appeal_window.0)
             .saturating_add(self.config.jury_window.0)
+            .max(MIN_OWNER_DELAY)
     }
 
     /// When the judge's time on a challenge runs out.
@@ -792,7 +891,7 @@ fn hex_encode(bytes: &[u8]) -> String {
 fn emit(event: &str, data: Value) {
     env::log_str(&format!(
         "EVENT_JSON:{}",
-        json!({ "standard": "vouch", "version": "1.2.0", "event": event, "data": [data] })
+        json!({ "standard": "vouch", "version": "1.3.0", "event": event, "data": [data] })
     ));
 }
 

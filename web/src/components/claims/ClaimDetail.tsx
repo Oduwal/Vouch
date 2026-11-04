@@ -48,8 +48,8 @@ function caseSteps(claim: Claim, now: number): Step[] {
     steps.push({ label: decided ? "Appeal window closed" : "Open to appeal", detail: `${decided ? "" : "until "}${formatDate(ruling.appeal_until)}`, state: decided ? "done" : "now" });
   }
   steps.push({
-    label: status === "held" ? "Held" : status === "overturned" ? "Overturned" : "Final",
-    detail: status === "held" ? "Agent kept the bond" : status === "overturned" ? "Challenger took the bond" : "Still to come",
+    label: status === "held" ? "Held" : status === "overturned" ? "Overturned" : ruling?.winner === "agent" ? "Reopens" : "Final",
+    detail: status === "held" ? "Agent kept the bond" : status === "overturned" ? "Challenger took the bond" : ruling?.winner === "agent" ? "Open to others for at least 6 hours" : "Still to come",
     state: status === "held" || status === "overturned" ? "done" : "next",
   });
   return steps;
@@ -106,7 +106,9 @@ function Outcome({ claim, config, jurors, rounds, now, onDone }: { claim: Claim;
   let line = "";
   if (status === "open") line = `${rounds.length ? "Nobody else challenged" : "Nobody challenged"} in time. The bond returns to the agent's pool when the claim is closed.`;
   if (status === "challenged") line = `The contract is holding this case for the judge. If no ruling lands within about ${Math.round(nanosToMs(config.late_ruling_window) / 60_000) + 2} minutes, a jury takes the case, or the bond and the stake go back if there aren't enough jurors.`;
-  if (status === "ruled" && ruling) line = `This becomes final in ${timeLeft(Math.max(0, nanosToMs(ruling.appeal_until) - now))} unless the losing side appeals.`;
+  if (status === "ruled" && ruling) line = ruling.winner === "agent"
+    ? `Unless the challenger appeals within ${timeLeft(Math.max(0, nanosToMs(ruling.appeal_until) - now))}, the agent takes the stake and the call reopens to anyone else for at least 6 hours.`
+    : `This becomes final in ${timeLeft(Math.max(0, nanosToMs(ruling.appeal_until) - now))} unless the agent appeals.`;
   if (status === "appealed" && appeal) line = ruling
     ? `A jury of ${appeal.jury.length} is hearing the appeal, with ${appeal.votes.length} of ${appeal.jury.length} votes in. If it can't reach a majority by ${formatDate(appeal.jury_until)}, the judge's ruling stands.`
     : `The judge gave no ruling, so a jury of ${appeal.jury.length} took the case, with ${appeal.votes.length} of ${appeal.jury.length} votes in. If it can't reach a majority by ${formatDate(appeal.jury_until)}, both sides get their money back.`;

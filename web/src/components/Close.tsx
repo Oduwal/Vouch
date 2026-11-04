@@ -51,7 +51,7 @@ export function Footer() {
 
       <div className="mt-auto">
         <div className="page flex flex-col gap-1 pb-2 text-[0.8125rem] text-muted sm:flex-row sm:justify-between">
-          <span>Testnet project, in development. The panels above show sample data.</span>
+          <span>Testnet project. Test cases on the contract are labelled as test cases.</span>
           <span>© 2026 Vouch</span>
         </div>
         <p aria-hidden="true" className="display translate-y-[22%] whitespace-nowrap pl-[var(--margin)] text-[34vw] leading-[0.8] [font-stretch:150%] sm:text-[28vw]">

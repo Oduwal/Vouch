@@ -161,6 +161,16 @@ impl Contract {
         );
         let appeal = claim.appeal.as_ref().unwrap();
         require!(appeal.jury.contains(&juror), "You are not on this jury");
+        // Not in the draw's own block: bundling a seal with the draw would undo the draw unless it
+        // seated you, so a juror could retry until it did.
+        require!(
+            env::block_timestamp()
+                > appeal
+                    .jury_until
+                    .0
+                    .saturating_sub(self.config.jury_window.0),
+            "The jury was only just drawn"
+        );
         require!(
             env::block_timestamp() < self.commit_deadline(appeal.jury_until.0),
             "The time to seal a vote has passed"

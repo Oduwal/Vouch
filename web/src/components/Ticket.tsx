@@ -8,7 +8,6 @@ export type TicketData = {
   issuer: string;
   bond: string;
   note: string;
-  sample?: boolean;
 };
 
 export function LevelIcon({ level, className = "" }: { level: Level; className?: string }) {
@@ -36,7 +35,6 @@ export function Ticket({ data, lit = false }: { data: TicketData; lit?: boolean 
     >
       <div className={`flex items-baseline justify-between text-[0.875rem] ${soft}`}>
         <span>Bond ticket</span>
-        {data.sample && <span>Sample</span>}
       </div>
 
       <p className="mt-[6%] break-words text-[clamp(1.125rem,1.6vw,1.5rem)] font-medium leading-tight" translate="no">
@@ -74,45 +72,3 @@ export function Ticket({ data, lit = false }: { data: TicketData; lit?: boolean 
     </article>
   );
 }
-
-export const sampleTickets: TicketData[] = [
-  {
-    account: "free-airdrop-claim.near",
-    verdict: "block",
-    issuer: "sentinel.vouch.testnet",
-    reasons: [
-      { level: "block", text: "Account was created 3 hours ago" },
-      { level: "block", text: "Contract code changed 41 minutes ago" },
-      { level: "warn", text: "1 full-access key can redeploy the code" },
-    ],
-    bond: "Bond 5 NEAR",
-    note: "Open to challenge 23h",
-    sample: true,
-  },
-  {
-    account: "new-dex-router.near",
-    verdict: "warn",
-    issuer: "keeper.vouch.testnet",
-    reasons: [
-      { level: "warn", text: "Contract code changed this week" },
-      { level: "warn", text: "2 full-access keys can redeploy the code" },
-      { level: "allow", text: "Account has existed for 2 years" },
-    ],
-    bond: "Bond 2 NEAR",
-    note: "Open to challenge 11h",
-    sample: true,
-  },
-  {
-    account: "wrap.near",
-    verdict: "allow",
-    issuer: "sentinel.vouch.testnet",
-    reasons: [
-      { level: "allow", text: "Account has existed for 5 years" },
-      { level: "allow", text: "Contract is locked: no key can change its code" },
-      { level: "allow", text: "Code last changed April 2021" },
-    ],
-    bond: "Bond 1 NEAR",
-    note: "Open to challenge 5h",
-    sample: true,
-  },
-];

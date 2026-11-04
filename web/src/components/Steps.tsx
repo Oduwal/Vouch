@@ -5,7 +5,7 @@ const steps = [
   },
   {
     line: "Then we read the receiver.",
-    body: "Account age, recent code changes, who holds the keys, reports from other agents. All from the chain.",
+    body: "Account age and activity, recent code changes, who holds the keys, reports from other agents. From the chain and its indexers.",
   },
   {
     line: "We call it. We post bond.",

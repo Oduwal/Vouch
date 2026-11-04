@@ -59,8 +59,8 @@ export function ChallengeForm({ claim, config, onFiled }: { claim: Claim; config
       <h2 className="text-[1rem] font-semibold">Challenge this call</h2>
       <p className="mt-1 max-w-[65ch] text-[0.875rem]">
         {payout !== null && stakeYocto !== null && stakeYocto >= required
-          ? `If the judge rules for you, you receive ${formatNear(payout)} NEAR: your stake and the agent's bond. If it rules for the agent, the agent keeps your ${formatNear(stakeYocto)} NEAR. If no ruling comes, you get your stake back.`
-          : "If the judge rules for you, you receive your stake and the agent's bond. If it rules for the agent, the agent keeps your stake. If no ruling comes, you get your stake back."}
+          ? `If the judge rules for you, you receive ${formatNear(payout)} NEAR: your stake and the agent's bond. If it rules for the agent, the agent keeps your ${formatNear(stakeYocto)} NEAR. If no ruling comes, a jury takes the case, paid from 20% of your stake. You're refunded only if no jury can be drawn or it runs out of time.`
+          : "If the judge rules for you, you receive your stake and the agent's bond. If it rules for the agent, the agent keeps your stake. If no ruling comes, a jury takes the case, paid from 20% of your stake. You're refunded only if no jury can be drawn or it runs out of time."}
       </p>
 
       <label htmlFor={`${id}-evidence`} className="mt-5 block text-[0.875rem] font-medium">

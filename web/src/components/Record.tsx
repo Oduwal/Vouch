@@ -4,7 +4,7 @@ const groups = [
     source: "NEAR RPC",
     rows: [
       ["Contract code", "Deployed, hash DL2f…Tsh1", "Any change to it is caught"],
-      ["Access keys", "None: the account is locked", "Nobody can redeploy the code"],
+      ["Access keys", "None", "No key can redeploy the code"],
     ],
   },
   {
@@ -16,7 +16,7 @@ const groups = [
   },
   {
     source: "Vouch contract",
-    rows: [["Shared blocklist", "Goes live with the testnet contract", "Reports carry evidence and a stake"]],
+    rows: [["Shared blocklist", "Read with get_reports, on testnet", "A report with its bond at risk blocks. One nobody challenged needs a human"]],
   },
 ];
 
@@ -45,7 +45,7 @@ export function Record() {
           <tr className="text-left text-muted">
             <th scope="col" className="w-[16%] py-3.5 pr-4 font-normal">Read from</th>
             <th scope="col" className="w-[22%] py-3.5 pr-4 font-normal">Signal</th>
-            <th scope="col" className="w-[32%] py-3.5 pr-4 font-normal">wrap.near today</th>
+            <th scope="col" className="w-[32%] py-3.5 pr-4 font-normal">wrap.near, 1 Nov 2026</th>
             <th scope="col" className="py-3.5 text-right font-normal">What it changes</th>
           </tr>
         </thead>

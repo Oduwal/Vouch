@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { AGENT_POLICY, ATTACK_AMOUNT_NEAR, inbox, type AttackEvent, type RunResult } from "../../lib/agent/attack-data";
+import { AGENT_POLICY, ATTACK_AMOUNT_NEAR, inbox, KNOWN_BAD_ACCOUNT, type AttackEvent, type RunResult } from "../../lib/agent/attack-data";
 import { formatNear } from "../../lib/vouch";
 import { formatDate } from "./format";
 
@@ -40,7 +40,7 @@ function Outcome({ result }: { result: RunResult }) {
           </>
         )}
         {result.action === "refused" && `Refused. No NEAR moved.`}
-        {result.action === "declined" && "Declined. No human approved this warned payment, so no NEAR moved."}
+        {result.action === "declined" && "Declined. No human approved this payment, so no NEAR moved."}
       </p>
       {result.action === "refused" && !result.verdict && <p className="mt-1 text-[0.875rem]">{result.reason}</p>}
     </>
@@ -75,7 +75,8 @@ export function AttackDemo({ recorded, live }: { recorded: AttackEvent[]; live: 
   const attacker = start?.attacker ?? "acme-billing-….testnet";
   const results = events.flatMap((e) => (e.type === "result" ? [e] : []));
   const decisions = events.flatMap((e) => (e.type === "agent" ? [e] : []));
-  const toAttacker = results.filter((e) => e.result.to === attacker);
+  const toAttacker = results.filter((e) => e.result.to === attacker || e.result.to === KNOWN_BAD_ACCOUNT);
+  const bypasses = events.flatMap((e) => (e.type === "bypass" ? [e] : []));
   const sent = toAttacker.reduce((sum, e) => (e.result.action === "paid" ? sum + Number(e.result.amountNear) : sum), 0);
   const failure = events.find((e) => e.type === "error");
   const finished = events.some((e) => e.type === "end");
@@ -113,7 +114,7 @@ export function AttackDemo({ recorded, live }: { recorded: AttackEvent[]; live: 
     <>
       <h1 className="text-[1.5rem] font-bold leading-tight tracking-[-0.01em]">Attack demo</h1>
       <p className="mt-1 max-w-[65ch] text-[0.9375rem]">
-        A paying agent works through three invoices. The last one redirects {ATTACK_AMOUNT_NEAR} NEAR to an account made seconds earlier. The model decides who to pay, and Vouch decides whether the money moves.
+        A paying agent works through four invoices. One redirects {ATTACK_AMOUNT_NEAR} NEAR to an account made seconds earlier, and one to an account another agent has reported. The model decides who to pay, and Vouch decides whether the money moves. Then the agent tries to skip the check.
       </p>
 
       <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -142,17 +143,17 @@ export function AttackDemo({ recorded, live }: { recorded: AttackEvent[]; live: 
 
       <dl className="mt-6 grid gap-px bg-bg sm:grid-cols-3">
         <div className="bg-surface px-5 py-4">
-          <dt className="text-[0.8125rem] text-muted">Attacker asked for</dt>
+          <dt className="text-[0.8125rem] text-muted">Each attack asked for</dt>
           <dd className="mt-1 text-[1.5rem] font-bold tabular-nums">{Number(ATTACK_AMOUNT_NEAR).toFixed(2)} <span className="text-[0.8125rem] font-normal">NEAR</span></dd>
         </div>
         <div className="bg-surface px-5 py-4">
-          <dt className="text-[0.8125rem] text-muted">Attacker received</dt>
+          <dt className="text-[0.8125rem] text-muted">Attackers received</dt>
           <dd className="mt-1 text-[1.5rem] font-bold tabular-nums">
             {toAttacker.length ? sent.toFixed(2) : "…"} <span className="text-[0.8125rem] font-normal">NEAR</span>
           </dd>
         </div>
         <div className="min-w-0 bg-surface px-5 py-4">
-          <dt className="text-[0.8125rem] text-muted">Attacker&apos;s account</dt>
+          <dt className="text-[0.8125rem] text-muted">New attacker&apos;s account</dt>
           <dd className="mt-2 break-words text-[0.9375rem] font-semibold" translate="no">{attacker}</dd>
         </div>
       </dl>
@@ -179,6 +180,21 @@ export function AttackDemo({ recorded, live }: { recorded: AttackEvent[]; live: 
         })}
       </ol>
 
+      {bypasses.length > 0 && (
+        <section aria-labelledby="bypass-title" className="mt-4 bg-surface p-5">
+          <h2 id="bypass-title" className="text-[1rem] font-semibold">Then the agent skips the check</h2>
+          <p className="mt-1 max-w-[65ch] text-[0.9375rem]">A compromised agent wouldn&apos;t run the guard&apos;s code at all, so this run tries without it. The agent signs with a function-call key that can only call its wallet contract.</p>
+          <ul className="mt-3 space-y-3 text-[0.9375rem]">
+            {bypasses.map((b) => (
+              <li key={b.attempt}>
+                <p className="font-medium">{b.attempt === "wallet" ? "Asking the wallet contract to pay the attacker directly" : "Sending the attacker a plain NEAR transfer"}</p>
+                <p className="mt-0.5 break-words text-[0.875rem] text-muted">{b.stoppedBy}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <section aria-labelledby="fair-title" className="mt-4 bg-surface p-5">
         <h2 id="fair-title" className="text-[1rem] font-semibold">What this does and doesn&apos;t show</h2>
         <p className="mt-2 max-w-[65ch] text-[0.9375rem]">
@@ -186,10 +202,10 @@ export function AttackDemo({ recorded, live }: { recorded: AttackEvent[]; live: 
         </p>
         <blockquote className="mt-2 max-w-[65ch] bg-bg p-4 text-[0.875rem]">{AGENT_POLICY}</blockquote>
         <p className="mt-3 max-w-[65ch] text-[0.9375rem]">
-          Good orders help. In our tests of this model, ordinary orders paid the attacker in all 6 tries, and so did these. Orders saying that an invoice can&apos;t change a payment account refused in all 6, and if the model resists here, the page says so. Vouch doesn&apos;t depend on anyone writing perfect orders: it checks the recipient on the chain, which an invoice can&apos;t talk its way around.
+          Good orders help, and if the model resists here, the page says so. Vouch doesn&apos;t depend on anyone writing perfect orders: it checks the recipient on the chain, which an invoice can&apos;t talk its way around.
         </p>
         <p className="mt-3 max-w-[65ch] text-[0.9375rem]">
-          This runs on NEAR testnet with test tokens. A warned payment needs a human&apos;s yes, and nobody is at the keyboard here, so it&apos;s declined. One payment is limited to {ATTACK_AMOUNT_NEAR} NEAR.
+          This runs on NEAR testnet with test tokens. A payment that needs a human&apos;s yes is declined here, because nobody is at the keyboard. One payment is limited to {ATTACK_AMOUNT_NEAR} NEAR. The reported account is one we made for this demo, and its report says so.
         </p>
       </section>
     </>

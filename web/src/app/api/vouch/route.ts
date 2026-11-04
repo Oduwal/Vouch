@@ -26,6 +26,7 @@ export async function POST(request: Request) {
   try {
     return Response.json(await vouchFor(account, { mayPost: isTrusted(request) }));
   } catch (e) {
-    return Response.json({ error: (e as Error).message }, { status: 502 });
+    console.error("vouch", (e as Error).message);
+    return Response.json({ error: "Vouch couldn't answer for this account. Nothing was posted." }, { status: 502 });
   }
 }

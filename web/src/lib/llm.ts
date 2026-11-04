@@ -32,10 +32,11 @@ export async function readCapped(res: Response, maxBytes = MAX_RESPONSE_BYTES): 
   return Buffer.concat(chunks).toString("utf8");
 }
 
-// The first complete JSON object in a model's answer, wherever it sits in the text. A plain regex would
-// run from the first brace to the last and break on any prose after the answer.
+// The one JSON object in a model's answer, wherever it sits in the text. A plain regex would run from the
+// first brace to the last and break on any prose after the answer. A second object means something in the
+// answer may be an echo of untrusted text, so it counts as no answer. Only leading thinking is stripped.
 export function firstJsonObject(text: string): unknown {
-  const clean = text.replace(/<think>[\s\S]*?<\/think>/g, "");
+  const clean = text.replace(/^\s*<think>[\s\S]*?<\/think>/, "");
   const start = clean.indexOf("{");
   if (start < 0) throw new Error("Model did not answer with JSON");
   let depth = 0;
@@ -49,7 +50,10 @@ export function firstJsonObject(text: string): unknown {
       else if (c === '"') inString = false;
     } else if (c === '"') inString = true;
     else if (c === "{") depth++;
-    else if (c === "}" && --depth === 0) return JSON.parse(clean.slice(start, i + 1));
+    else if (c === "}" && --depth === 0) {
+      if (clean.indexOf("{", i) >= 0) throw new Error("Model gave more than one JSON object");
+      return JSON.parse(clean.slice(start, i + 1));
+    }
   }
   throw new Error("Model's JSON was cut off");
 }

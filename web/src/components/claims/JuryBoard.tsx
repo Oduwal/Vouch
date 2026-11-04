@@ -93,7 +93,7 @@ function YourSeat({ me, config, now, onDone }: { me: Juror | null; config: Confi
       ) : (
         <>
           <p className="mt-1 text-[0.875rem]">
-            Jurors on the majority split each appeal&apos;s fee. Voting with the minority costs nothing, but missing a vote costs {config.no_show_slash_pct}% of your stake. You can be drawn {formatWindow(config.juror_warmup)} after joining and leave after {formatWindow(config.juror_lockup)}.
+            Jurors on the majority split each appeal&apos;s fee. Voting with the minority costs nothing, but failing to seal a vote, or to reveal it before time runs out, costs {config.no_show_slash_pct}% of your stake. You can be drawn {formatWindow(config.juror_warmup)} after joining and leave after {formatWindow(config.juror_lockup)}.
           </p>
           <label htmlFor="juror-stake" className="mt-4 block text-[0.875rem] font-medium">Your stake</label>
           <div className="mt-2 flex flex-wrap items-center gap-2">

@@ -40,10 +40,13 @@ export type Claim = {
 export type Round = { challenge: NonNullable<Claim["challenge"]>; ruling: Claim["ruling"]; appeal: Claim["appeal"] };
 
 // A claim still stands behind its call until it's closed, its window passes, or the judge rules against it.
+// The same rule as the wallet contract.
 export function isLive(claim: Claim) {
-  if (claim.status === "open") return BigInt(claim.challenge_until) > BigInt(Date.now()) * BigInt(1_000_000);
-  if (claim.status === "ruled") return claim.ruling?.winner !== "challenger";
-  return claim.status === "challenged" || claim.status === "appealed";
+  const now = BigInt(Date.now()) * BigInt(1_000_000);
+  if (claim.status === "open") return BigInt(claim.challenge_until) > now;
+  const notRuledWrong = claim.ruling?.winner !== "challenger";
+  if (claim.status === "ruled") return notRuledWrong && BigInt(claim.ruling?.appeal_until ?? "0") > now;
+  return (claim.status === "challenged" || claim.status === "appealed") && notRuledWrong;
 }
 
 // Someone has challenged the call and nobody has decided yet.

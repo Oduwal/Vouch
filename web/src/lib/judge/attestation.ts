@@ -2,7 +2,8 @@
 // https://docs.near.ai/cloud/verification. A node is trusted only if all of this holds:
 // - its Intel TDX quote verifies on a patched platform, and it isn't a debug VM
 // - the quote binds our fresh nonce and the node's signing address
-// - its event log replays to the registers in the quote, and names the software in its app description
+// - its event log replays to the registers in the quote, each app event's digest is recomputed from its
+//   contents, and the log and the quote's config id both name the software in its app description
 // - that software is NEAR AI's, or matches a pinned hash when one is set
 // - NVIDIA signed a passing verdict on its GPUs, carrying our nonce
 // NEAR AI's gateway has to pass the same hardware checks.
@@ -18,10 +19,12 @@ const NRAS_KEYS = `${NRAS_ISSUER}/.well-known/jwks.json`;
 const ACCEPTED_TCB = new Set(["UpToDate", "SWHardeningNeeded"]);
 // The software NEAR AI's model nodes are launched by. Anyone can rent a TDX VM, so genuine hardware
 // alone doesn't say whose code ran on it.
-const NEAR_AI_IMAGE = "nearaidev/compose-manager@sha256:";
+// As the image a service runs, not just any text in the description, which could be a comment. NEAR AI writes
+// it with an environment default, and the description arrives as JSON, with its line breaks escaped.
+const NEAR_AI_IMAGE = /(?:^|\\n|\n)\s*image:\s*(?:\$\{COMPOSE_MANAGER_IMAGE:-)?nearaidev\/compose-manager@sha256:[0-9a-f]{64}\}?\s*(?:$|\\n|\n)/;
 const MAX_REPORT_BYTES = 2 * 1024 * 1024;
 
-type EventLogEntry = { imr: number; digest: string; event?: string; event_payload?: string };
+type EventLogEntry = { imr: number; digest: string; event_type?: number; event?: string; event_payload?: string };
 
 type TcbInfo = { app_compose?: string | object; event_log?: EventLogEntry[] };
 
@@ -35,6 +38,7 @@ type ReportedNode = {
   nvidia_payload?: string | object;
   tls_cert_fingerprint?: string;
   info?: NodeInfo;
+  model_name?: string;
 };
 
 export type TrustedNode = {
@@ -90,7 +94,7 @@ export async function attestModel(model: string): Promise<Attestation> {
   const results = await Promise.all(
     (report.model_attestations ?? []).map(async (node) => {
       try {
-        return { ok: true as const, node: await checkNode(node, nonce) };
+        return { ok: true as const, node: await checkNode(node, nonce, model) };
       } catch (e) {
         return { ok: false as const, signingAddress: node.signing_address ?? null, reason: (e as Error).message };
       }
@@ -136,7 +140,16 @@ export async function checkHardware(node: ReportedNode, nonce: string) {
   const log = tcb.event_log;
   const registers = [Buffer.alloc(48), Buffer.alloc(48), Buffer.alloc(48), Buffer.alloc(48)];
   for (const entry of log) {
-    if (entry.imr < 0 || entry.imr > 3) continue;
+    if (!Number.isInteger(entry.imr) || entry.imr < 0 || entry.imr > 3) throw new Error("Event log names a register that doesn't exist");
+    // The digest is what's replayed, so an app event only counts if its contents produce that digest.
+    if (entry.imr === 3) {
+      const type = Buffer.alloc(4);
+      type.writeUInt32LE(entry.event_type ?? 0);
+      const digest = createHash("sha384")
+        .update(Buffer.concat([type, Buffer.from(":"), Buffer.from(entry.event ?? ""), Buffer.from(":"), Buffer.from(entry.event_payload ?? "", "hex")]))
+        .digest("hex");
+      if (digest !== entry.digest.toLowerCase()) throw new Error("An event in the log doesn't match its digest");
+    }
     registers[entry.imr] = createHash("sha384")
       .update(Buffer.concat([registers[entry.imr], Buffer.from(entry.digest, "hex")]))
       .digest();
@@ -150,19 +163,23 @@ export async function checkHardware(node: ReportedNode, nonce: string) {
   if (!tcb.app_compose) throw new Error("Report has no app description");
   const composeText = typeof tcb.app_compose === "string" ? tcb.app_compose : JSON.stringify(tcb.app_compose);
   const composeHash = sha256(composeText);
-  const named = log.find((entry) => entry.event === "compose-hash")?.event_payload;
-  if (named !== composeHash) throw new Error("The app description does not match the event log");
+  const named = log.filter((entry) => entry.event === "compose-hash");
+  if (named.length !== 1 || named[0].event_payload !== composeHash) throw new Error("The app description does not match the event log");
+  // The hardware signed this field directly: 01, then the app's hash, then zeros.
+  const configId = Buffer.concat([Buffer.from([1]), Buffer.from(composeHash, "hex"), Buffer.alloc(15)]);
+  if (!Buffer.from(td.mrConfigId).equals(configId)) throw new Error("The quote's config id does not match the app description");
 
   return { quote, verified, td, composeText, composeHash, signingAddress: node.signing_address, osImageHash: node.info?.os_image_hash ?? null };
 }
 
-async function checkNode(node: ReportedNode, nonce: string): Promise<TrustedNode> {
+async function checkNode(node: ReportedNode, nonce: string, model: string): Promise<TrustedNode> {
+  if (node.model_name !== model) throw new Error(`This node serves ${node.model_name ?? "an unnamed model"}, not ${model}`);
   const { quote, verified, td, composeText, composeHash, signingAddress, osImageHash } = await checkHardware(node, nonce);
 
   const pinned = process.env.JUDGE_TRUSTED_COMPOSE_HASHES?.split(",").map((h) => h.trim()).filter(Boolean);
   if (pinned?.length) {
     if (!pinned.includes(composeHash)) throw new Error(`App hash ${composeHash} is not pinned`);
-  } else if (!composeText.includes(NEAR_AI_IMAGE)) {
+  } else if (!NEAR_AI_IMAGE.test(composeText)) {
     throw new Error("The app is not NEAR AI's model software");
   }
 

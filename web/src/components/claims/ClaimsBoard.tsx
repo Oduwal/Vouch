@@ -87,7 +87,7 @@ export function ClaimsBoard({ initial, serverNow }: { initial: Claim[]; serverNo
       <p className="mt-1 max-w-[65ch] text-[0.9375rem]">
         {open.length
           ? `${open.length} ${open.length === 1 ? "call is" : "calls are"} open to challenge with ${formatNear(atStake)} NEAR at stake. The next window closes in ${timeLeft(nanosToMs(open[0].challenge_until) - now)}.`
-          : "Nothing is open to challenge right now. Check an account to have the sentinel post a new call."}
+          : "Nothing is open to challenge right now. The sentinel keeps two calls open, so check back in a minute."}
       </p>
 
       <div role="group" aria-label="Filter calls" className="mt-6 flex gap-2 overflow-x-auto pb-1 sm:grid sm:grid-cols-5 sm:overflow-visible">

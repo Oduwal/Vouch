@@ -2,18 +2,39 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Check } from "../lib/signals";
+import type { Check, Level } from "../lib/signals";
+import { formatNear, latestClaims, type Claim } from "../lib/vouch";
+import { statusLine } from "./claims/format";
 import { ThemeToggle } from "./ThemeToggle";
-import { Ticket, sampleTickets, type TicketData } from "./Ticket";
+import { Ticket, type TicketData } from "./Ticket";
 
 const HOLD_MS = 7100;
 const timeFormat = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
+// A ticket has room for three reasons, so the ones that drove the verdict go first.
+const RANK: Record<Level, number> = { block: 0, warn: 1, allow: 2 };
+
+// The newest real call of each kind on the contract.
+function fromClaims(claims: Claim[], now: number): TicketData[] {
+  return (["block", "warn", "allow"] as const).flatMap((verdict) =>
+    claims
+      .filter((c) => c.verdict === verdict)
+      .slice(0, 1)
+      .map((c) => ({
+        account: c.subject,
+        verdict: c.verdict,
+        reasons: c.reasons.map((text) => ({ text })),
+        issuer: c.agent,
+        bond: `Bond ${formatNear(c.bond)} NEAR`,
+        note: statusLine(c, now),
+      })),
+  );
+}
 
 function toTicket(check: Check): TicketData {
   return {
     account: check.account,
     verdict: check.verdict,
-    reasons: check.reasons,
+    reasons: [...check.reasons].sort((a, b) => RANK[a.level] - RANK[b.level]),
     issuer: "Preview, not bonded yet",
     bond: `Live ${check.network} data`,
     note: `Read ${timeFormat.format(new Date(check.checkedAt))} UTC`,
@@ -22,18 +43,25 @@ function toTicket(check: Check): TicketData {
 
 export function Hero() {
   const [index, setIndex] = useState(0);
+  const [tickets, setTickets] = useState<TicketData[]>([]);
   const [live, setLive] = useState<TicketData | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
   const [error, setError] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (live || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    void latestClaims()
+      .then((claims) => setTickets(fromClaims(claims, Date.now())))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (live || !tickets.length || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const id = window.setInterval(() => {
-      if (!document.hidden) setIndex((i) => (i + 1) % sampleTickets.length);
+      if (!document.hidden) setIndex((i) => (i + 1) % tickets.length);
     }, HOLD_MS);
     return () => window.clearInterval(id);
-  }, [live]);
+  }, [live, tickets.length]);
 
   const run = useCallback(async (account: string) => {
     setStatus("loading");
@@ -88,8 +116,10 @@ export function Hero() {
             <div key={live.account + live.note} className="[grid-area:1/1] animate-[print_0.6s_var(--ease-out)]">
               <Ticket data={live} lit />
             </div>
+          ) : !tickets.length ? (
+            <div className="aspect-[4/5] w-full bg-surface" />
           ) : (
-            sampleTickets.map((t, i) => (
+            tickets.map((t, i) => (
               <div
                 key={t.account}
                 className="[grid-area:1/1] transition-opacity duration-[1600ms] ease-in-out"

@@ -1,3 +1,5 @@
+import { formatNear, isLive, view, type Claim } from "./vouch";
+
 export type Level = "allow" | "warn" | "block";
 
 export type Reason = { level: Level; text: string };
@@ -18,6 +20,12 @@ export type Check = {
     fullAccessKeys: number | null;
     deployCount: number | null;
     lastDeployAt: string | null;
+    // From the transaction index, which can be missing the oldest history of an account.
+    txCount: number | null;
+    lastActivityAt: string | null;
+    // Who has reported this account. Their evidence is on the claim, written by an interested party.
+    // A live report still has its bond at risk. A closed one can't be challenged any more.
+    reports: { claimId: string; agent: string; live: boolean }[];
   };
   checkedAt: string;
 };
@@ -30,6 +38,11 @@ const NEARBLOCKS: Record<Network, string> = {
   mainnet: "https://api.nearblocks.io/v1",
   testnet: "https://api-testnet.nearblocks.io/v1",
 };
+const TX_INDEX: Record<Network, string> = {
+  mainnet: "https://tx.main.fastnear.com",
+  testnet: "https://tx.test.fastnear.com",
+};
+const INDEX_PAGE = 1;
 const EMPTY_CODE_HASH = "11111111111111111111111111111111";
 const DAY = 24 * 60 * 60 * 1000;
 // A new access key's nonce starts at the block height times this.
@@ -70,6 +83,34 @@ async function nearblocks<T>(network: Network, path: string): Promise<T | null> 
   }
 }
 
+type IndexedTx = { transaction_hash: string; tx_block_timestamp: string };
+
+// Every transaction touching an account, newest first. Null when the index doesn't answer.
+async function txIndex(network: Network, account: string): Promise<{ count: number; txs: IndexedTx[] } | null> {
+  try {
+    const res = await fetch(`${TX_INDEX[network]}/v0/account`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ account_id: account, limit: INDEX_PAGE }),
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!res.ok) return null;
+    const body = await res.json();
+    // A 200 with some other shape is an outage, not an empty history.
+    if (typeof body.txs_count !== "number" || !Array.isArray(body.account_txs)) return null;
+    return { count: body.txs_count, txs: body.account_txs };
+  } catch {
+    return null;
+  }
+}
+
+export type CheckOptions = {
+  // Off where the check has to be free of anyone's say-so, as when ruling on one of those reports.
+  reports?: boolean;
+  // An agent doesn't count as its own witness.
+  ignoreReportsBy?: string;
+};
+
 // NearBlocks timestamps are nanoseconds since the epoch.
 const count = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
@@ -98,23 +139,32 @@ async function oldestKeyAddedAt(network: Network, nonces: bigint[]): Promise<Dat
   return new Date(fromNanos(latest.header.timestamp_nanosec).getTime() - (latest.header.height - height) * msPerBlock);
 }
 
-export async function checkAccount(account: string): Promise<Check> {
+export async function checkAccount(account: string, { reports: readReports = true, ignoreReportsBy }: CheckOptions = {}): Promise<Check> {
   const network = networkOf(account);
-  const [view, keys, info, deploys] = await Promise.all([
-    query<{ code_hash: string }>(network, { request_type: "view_account", account_id: account }),
+  const [state, keys, info, deploys, activity, reported] = await Promise.all([
+    query<{ code_hash: string; global_contract_hash?: string | null; global_contract_account_id?: string | null }>(network, {
+      request_type: "view_account",
+      account_id: account,
+    }),
     // Accounts with thousands of keys make this query fail; the key signals are then skipped.
     query<{ keys: { access_key: { nonce: number | string; permission: unknown } }[] }>(network, {
       request_type: "view_access_key_list",
       account_id: account,
     }).catch(() => null),
-    nearblocks<{ account: { created?: { block_timestamp: number | string } }[] }>(network, `/account/${account}`),
+    nearblocks<{ account: { created?: { block_timestamp: number | string }; deleted?: { block_timestamp: number | string | null } }[] }>(
+      network,
+      `/account/${account}`,
+    ),
     nearblocks<{ deployments: { block_timestamp: string }[] }>(network, `/account/${account}/contract/deployments`),
+    txIndex(network, account),
+    // The blocklist lives on testnet, where NEAR is free, so it says nothing about a mainnet account.
+    readReports && network === "testnet" ? view<Claim[]>("get_reports", { subject: account }).catch(() => null) : Promise.resolve([] as Claim[]),
   ]);
 
   const checkedAt = new Date().toISOString();
   const reasons: Reason[] = [];
 
-  if (!view) {
+  if (!state) {
     return {
       account,
       network,
@@ -128,22 +178,31 @@ export async function checkAccount(account: string): Promise<Check> {
         fullAccessKeys: null,
         deployCount: null,
         lastDeployAt: null,
+        txCount: null,
+        lastActivityAt: null,
+        reports: [],
       },
       checkedAt,
     };
   }
 
-  const isContract = view.code_hash !== EMPTY_CODE_HASH;
+  // An account using a global contract reports the empty hash, and its code lives elsewhere.
+  const globalCode = !!(state.global_contract_hash || state.global_contract_account_id);
+  const isContract = state.code_hash !== EMPTY_CODE_HASH || globalCode;
   const fullAccessKeys = keys ? keys.keys.filter((k) => k.access_key.permission === "FullAccess").length : null;
   const created = info?.account?.[0]?.created?.block_timestamp;
-  let createdAt = created ? fromNanos(created) : null;
-  let ageSource: Check["facts"]["ageSource"] = createdAt ? "indexer" : null;
-  if (!createdAt && keys) {
-    createdAt = await oldestKeyAddedAt(network, keys.keys.map((k) => BigInt(k.access_key.nonce)));
-    if (createdAt) ageSource = "oldest-key";
-  }
+  const wasDeleted = !!info?.account?.[0]?.deleted?.block_timestamp;
+  const indexedAt = created ? fromNanos(created) : null;
+  const keyedAt = keys ? await oldestKeyAddedAt(network, keys.keys.map((k) => BigInt(k.access_key.nonce))) : null;
+  // A name deleted and made again keeps its old indexer date, and the testnet indexer lags by weeks. There
+  // the younger date wins. On mainnet the indexer does, so rotating a key doesn't make an account look new.
+  const keyFirst = (network === "testnet" || wasDeleted) && keyedAt && (!indexedAt || keyedAt > indexedAt);
+  const createdAt = keyFirst ? keyedAt : (indexedAt ?? keyedAt);
+  const ageSource: Check["facts"]["ageSource"] = !createdAt ? null : createdAt === indexedAt ? "indexer" : "oldest-key";
   const deployments = deploys?.deployments?.length ? deploys.deployments : null;
-  const lastDeployAt = deployments ? fromNanos(deployments[0].block_timestamp) : null;
+  // The API doesn't sort these.
+  const lastDeployNanos = deployments?.reduce((latest, d) => (BigInt(d.block_timestamp) > latest ? BigInt(d.block_timestamp) : latest), BigInt(0));
+  const lastDeployAt = lastDeployNanos ? fromNanos(lastDeployNanos.toString()) : null;
   const now = Date.now();
 
   if (createdAt) {
@@ -158,14 +217,24 @@ export async function checkAccount(account: string): Promise<Check> {
     reasons.push({ level: "warn", text: "Couldn't read how old this account is" });
   }
 
+  if (wasDeleted) reasons.push({ level: "warn", text: "This name was deleted once, so someone new may hold it" });
+
+  // Someone may have taken over an older account: its age says nothing about who holds it now.
+  const fullKeyNonces = keys?.keys.filter((k) => k.access_key.permission === "FullAccess").map((k) => BigInt(k.access_key.nonce)) ?? [];
+  if (fullKeyNonces.length && createdAt && now - createdAt.getTime() >= 7 * DAY) {
+    const newest = await oldestKeyAddedAt(network, [fullKeyNonces.reduce((a, b) => (a > b ? a : b))]);
+    if (newest && now - newest.getTime() < 7 * DAY) reasons.push({ level: "warn", text: "A full-access key was added this week" });
+  }
+
   if (isContract) {
-    if (fullAccessKeys === 0) reasons.push({ level: "allow", text: "Contract is locked: no key can change its code" });
+    if (globalCode) reasons.push({ level: "warn", text: "Runs a shared global contract, whose code may be changed from elsewhere" });
+    if (fullAccessKeys === 0) reasons.push({ level: "allow", text: "No full-access keys, though a contract can still change its own code if it has a method for it" });
     else if (fullAccessKeys) reasons.push({ level: "warn", text: `${count(fullAccessKeys, "full-access key")} can redeploy the code` });
     // A failed read, or thousands of keys added to make it fail. Either way, not a clean bill of health.
     else reasons.push({ level: "warn", text: "Couldn't read this contract's access keys" });
 
-    // No answer from the indexer isn't the same as no recent deploy.
-    if (!deploys) reasons.push({ level: "warn", text: "Couldn't read when this contract's code last changed" });
+    // No answer, or an empty one from an indexer that lags, isn't the same as no recent deploy.
+    if (!lastDeployAt) reasons.push({ level: "warn", text: "Couldn't read when this contract's code last changed" });
     if (lastDeployAt) {
       const since = now - lastDeployAt.getTime();
       if (since < DAY) reasons.push({ level: "block", text: "Contract code changed in the last 24 hours" });
@@ -174,6 +243,32 @@ export async function checkAccount(account: string): Promise<Check> {
   } else {
     reasons.push({ level: "allow", text: "Plain account with no contract code" });
   }
+
+  const lastActivity = activity?.txs[0] ? fromNanos(activity.txs[0].tx_block_timestamp) : null;
+  if (!activity) {
+    reasons.push({ level: "warn", text: "Couldn't read this account's activity" });
+  } else if (activity.count === 0) {
+    // The index can lack an old account's history, so silence only counts against a young one.
+    const young = !createdAt || now - createdAt.getTime() < 90 * DAY;
+    reasons.push({ level: young ? "warn" : "allow", text: "No transactions on record for this account" });
+  } else if (lastActivity) {
+    const since = Math.floor((now - lastActivity.getTime()) / DAY);
+    reasons.push({ level: "allow", text: `${count(activity.count, "transaction")} on record, the latest ${since ? `${count(since, "day")} ago` : "today"}` });
+  }
+
+  // Every `block` from another agent is a report with money behind it, and anyone can challenge it.
+  const others = (reported ?? []).filter((r) => r.agent !== ignoreReportsBy);
+  if (!reported) reasons.push({ level: "warn", text: "Couldn't read the shared blocklist" });
+  // A report only blocks while someone can still challenge it and take the bond. After that it's a reason for
+  // a human to look, or a report costing one fee could block an honest account for a month.
+  const shown = others.map((r) => ({ claimId: r.id, agent: r.agent, live: isLive(r) }));
+  others.forEach((r, i) =>
+    reasons.push(
+      shown[i].live
+        ? { level: "block", text: `Reported by ${r.agent}, with ${formatNear(r.bond)} NEAR at risk, in claim ${r.id}` }
+        : { level: "warn", text: `Reported by ${r.agent} in claim ${r.id}, and nobody challenged it` },
+    ),
+  );
 
   const verdict: Level = reasons.some((r) => r.level === "block")
     ? "block"
@@ -194,7 +289,18 @@ export async function checkAccount(account: string): Promise<Check> {
       fullAccessKeys,
       deployCount: deployments?.length ?? null,
       lastDeployAt: lastDeployAt?.toISOString() ?? null,
+      txCount: activity?.count ?? null,
+      lastActivityAt: lastActivity?.toISOString() ?? null,
+      reports: shown,
     },
     checkedAt,
   };
+}
+
+// The check without anyone's reports. An agent that bonds a call has to defend it to a judge who doesn't
+// read reports, so it can only stand on what the chain says.
+export function chainOnly(check: Check): Check {
+  const reasons = check.reasons.filter((r) => !r.text.startsWith("Reported by"));
+  const verdict: Level = reasons.some((r) => r.level === "block") ? "block" : reasons.some((r) => r.level === "warn") ? "warn" : "allow";
+  return { ...check, verdict, reasons, facts: { ...check.facts, reports: [] } };
 }

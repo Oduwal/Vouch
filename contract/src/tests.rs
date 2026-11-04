@@ -1244,3 +1244,248 @@ fn a_sealed_vote_can_be_read_and_shows_no_side() {
         Some(hex(&commitment(0, &jury[0], Side::Agent, SALT)))
     );
 }
+
+// ---- the shared blocklist ----
+
+const SUBJECT: &str = "free-airdrop-claim.near";
+
+fn reports(c: &Contract) -> Vec<U64> {
+    c.get_reports(SUBJECT.parse().unwrap())
+        .iter()
+        .map(|r| r.id)
+        .collect()
+}
+
+#[test]
+fn a_block_is_a_report_and_lower_calls_are_not() {
+    let mut c = setup();
+    assert_eq!(reports(&c), vec![U64(0)]);
+    second_agent_posts(&mut c, Level::Allow, 2);
+    assert_eq!(reports(&c), vec![U64(0)]);
+    assert!(c.get_reports("nobody.near".parse().unwrap()).is_empty());
+}
+
+#[test]
+fn a_later_allow_cannot_erase_a_report() {
+    let mut c = setup();
+    as_("anyone.near", near(0), DAY);
+    c.release(U64(0));
+    second_agent_posts(&mut c, Level::Allow, DAY + 1);
+    let shown = c.get_verdict(SUBJECT.parse().unwrap()).unwrap();
+    assert_eq!(shown.verdict, Level::Allow);
+    assert_eq!(reports(&c), vec![U64(0)]);
+}
+
+#[test]
+fn an_overturned_report_stops_standing() {
+    let mut c = ruled(Side::Challenger);
+    assert!(reports(&c).is_empty(), "already ruled wrong");
+    as_("anyone.near", near(0), 10 + DAY);
+    c.finalize(U64(0));
+    assert_eq!(status(&c), Status::Overturned);
+    assert!(reports(&c).is_empty());
+}
+
+#[test]
+fn a_challenged_report_still_stands_until_someone_rules() {
+    let mut c = setup();
+    as_(CHALLENGER, stake_deposit(), 5);
+    c.challenge(U64(0), "It's a good account.".into());
+    assert_eq!(reports(&c), vec![U64(0)]);
+}
+
+#[test]
+fn a_report_fades_after_thirty_days() {
+    let c = setup();
+    as_("anyone.near", near(0), 30 * DAY - 1);
+    assert_eq!(reports(&c), vec![U64(0)]);
+    as_("anyone.near", near(0), 30 * DAY);
+    assert!(reports(&c).is_empty());
+}
+
+fn another_agent_reports(c: &mut Contract, name: &str, now: u64) {
+    as_(name, near(1), now);
+    c.register_agent();
+    as_(name, near(0), now);
+    c.post_claim(
+        SUBJECT.parse().unwrap(),
+        Level::Block,
+        vec!["Another report".into()],
+        milli(100),
+    );
+}
+
+fn full_list() -> Contract {
+    let mut c = setup();
+    c.config.min_bond = milli(100);
+    for n in 1..=19 {
+        another_agent_reports(&mut c, &format!("agent{n}.near"), n);
+    }
+    c
+}
+
+#[test]
+fn reports_show_a_few_at_most_the_newest_first() {
+    let c = full_list();
+    let shown = reports(&c);
+    assert_eq!(shown.len(), 5);
+    assert_eq!(shown[0], U64(19));
+    assert_eq!(shown[4], U64(15));
+}
+
+#[test]
+fn a_report_cannot_push_out_one_that_stands() {
+    let mut c = full_list();
+    another_agent_reports(&mut c, "scammer.near", 30);
+    let ids = c
+        .reports
+        .get(&SUBJECT.parse::<AccountId>().unwrap())
+        .unwrap();
+    assert_eq!(ids.len(), 20);
+    assert!(ids.contains(&0), "the first report is still on the list");
+    assert!(
+        !ids.contains(&20),
+        "the list was full of reports that stand"
+    );
+}
+
+#[test]
+fn a_full_list_makes_room_when_a_report_stops_standing() {
+    let mut c = full_list();
+    let junk = c.claim_mut(5);
+    junk.status = Status::Overturned;
+    another_agent_reports(&mut c, "honest.near", 30);
+    let ids = c
+        .reports
+        .get(&SUBJECT.parse::<AccountId>().unwrap())
+        .unwrap();
+    assert!(ids.contains(&20) && !ids.contains(&5));
+}
+
+#[test]
+fn reports_with_a_bond_at_risk_come_before_closed_ones() {
+    let mut c = setup();
+    as_("anyone.near", near(0), DAY);
+    c.release(U64(0));
+    second_agent_posts(&mut c, Level::Block, DAY + 1);
+    second_agent_reports_expired(&mut c);
+    let shown = reports(&c);
+    assert_eq!(shown[0], U64(1));
+    assert_eq!(shown[1], U64(0));
+}
+
+fn second_agent_reports_expired(c: &mut Contract) {
+    as_("anyone.near", near(0), DAY + 2);
+    assert_eq!(c.claim(0).status, Status::Held);
+}
+
+#[test]
+fn a_report_ruled_wrong_does_not_stand_during_its_appeal() {
+    let (c, _) = appealed(&THREE);
+    assert_eq!(status(&c), Status::Appealed);
+    assert!(reports(&c).is_empty());
+}
+
+// ---- other fixes from the audit ----
+
+#[test]
+#[should_panic(expected = "You already have a live call on this account")]
+fn a_burst_cannot_lock_the_same_bond_twice() {
+    let mut c = setup();
+    as_(AGENT, near(0), 1);
+    c.post_claim(
+        SUBJECT.parse().unwrap(),
+        Level::Block,
+        vec!["Again".into()],
+        near(1),
+    );
+}
+
+#[test]
+fn a_stricter_call_from_the_same_agent_is_still_allowed() {
+    let mut c = setup();
+    as_(AGENT, near(0), 1);
+    c.post_claim(
+        "elsewhere.near".parse().unwrap(),
+        Level::Allow,
+        vec!["First".into()],
+        near(1),
+    );
+    as_(AGENT, near(0), 2);
+    c.post_claim(
+        "elsewhere.near".parse().unwrap(),
+        Level::Warn,
+        vec!["Worse now".into()],
+        near(1),
+    );
+    assert_eq!(
+        c.get_agent_verdict(AGENT.parse().unwrap(), "elsewhere.near".parse().unwrap())
+            .unwrap()
+            .verdict,
+        Level::Warn
+    );
+}
+
+#[test]
+#[should_panic(expected = "You already have a live call on this account")]
+fn an_agent_cannot_bury_a_dispute_under_a_softer_call() {
+    let mut c = setup();
+    as_(CHALLENGER, stake_deposit(), 5);
+    c.challenge(U64(0), "evidence".into());
+    as_(AGENT, near(0), 6);
+    c.post_claim(
+        SUBJECT.parse().unwrap(),
+        Level::Allow,
+        vec!["Nothing to see".into()],
+        near(1),
+    );
+}
+
+#[test]
+#[should_panic(expected = "The jury was only just drawn")]
+fn a_seal_cannot_be_bundled_with_the_draw() {
+    let (mut c, jury) = appealed(&THREE);
+    let juror = jury[0].clone();
+    as_(juror.as_str(), near(0), 20);
+    c.commit_vote(U64(0), hex(&commitment(0, &juror, Side::Agent, SALT)));
+}
+
+#[test]
+fn appeals_can_be_found_however_many_claims_came_after() {
+    let (mut c, _) = appealed(&THREE);
+    assert_eq!(c.get_appeals(None).len(), 1);
+    c.config.min_bond = milli(10);
+    c.config.max_locked_bonds = 1000;
+    for n in 0..30 {
+        as_(AGENT, near(0), 100 + n);
+        c.post_claim(
+            format!("account{n}.near").parse().unwrap(),
+            Level::Allow,
+            vec!["Another call".into()],
+            milli(10),
+        );
+    }
+    assert_eq!(c.get_appeals(None).len(), 1);
+}
+
+#[test]
+fn short_windows_cannot_shrink_the_notice_for_an_upgrade() {
+    let mut c = setup();
+    c.config.challenge_window = U64(MINUTE);
+    c.config.late_ruling_window = U64(MINUTE);
+    c.config.appeal_window = U64(MINUTE);
+    c.config.jury_window = U64(MINUTE);
+    as_(CONTRACT, near(0), 100);
+    c.propose_upgrade("0".repeat(64), "migrate".into(), "{}".into());
+    assert_eq!(
+        c.get_pending_upgrade().unwrap().apply_after,
+        U64(100 + 48 * HOUR)
+    );
+}
+
+#[test]
+fn a_commitment_can_be_read_back() {
+    let (mut c, jury) = appealed(&THREE);
+    commit(&mut c, &jury[0], Side::Agent, 30);
+    assert!(c.get_commitment(U64(0), jury[0].clone()).is_some());
+}
