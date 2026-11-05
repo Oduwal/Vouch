@@ -6,7 +6,6 @@ import { AGENT_POLICY, ATTACK_AMOUNT_NEAR, inbox, KNOWN_BAD_ACCOUNT, type Attack
 import { formatNear } from "../../lib/vouch";
 import { formatDate } from "./format";
 
-const EXPLORER = "https://testnet.nearblocks.io";
 const nanosFromIso = (iso: string) => (BigInt(new Date(iso).getTime()) * BigInt(1_000_000)).toString();
 
 function Verdict({ verdict }: { verdict: NonNullable<RunResult["verdict"]> }) {
@@ -36,7 +35,7 @@ function Outcome({ result }: { result: RunResult }) {
         {result.action === "paid" && (
           <>
             Paid {result.amountNear} NEAR.{" "}
-            <a href={`${EXPLORER}/txns/${result.transaction}`} className="font-normal underline">See the transaction</a>
+            <Link href={`/tx/${result.transaction}`} className="font-normal underline">See the transaction</Link>
           </>
         )}
         {result.action === "refused" && `Refused. No NEAR moved.`}

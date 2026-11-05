@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { CONTRACT_ID, formatNear, minStake, nanosToMs, phaseOf, view, type Agent, type Claim, type Config, type Juror, type Round } from "../../lib/vouch";
 import { Ticket, type TicketData } from "../Ticket";
@@ -7,7 +8,7 @@ import { AppealPanel, JuryPanel } from "./AppealPanels";
 import { ChallengeForm } from "./ChallengeForm";
 import { formatClock, formatDate, statusLine, timeLeft, useNow } from "./format";
 
-const EXPLORER = `https://testnet.nearblocks.io/address/${CONTRACT_ID}`;
+const RULINGS = `/account/${CONTRACT_ID}?method=submit_ruling`;
 const REFRESH_DISPUTE_MS = 5_000;
 const REFRESH_IDLE_MS = 30_000;
 
@@ -157,7 +158,7 @@ function Outcome({ claim, config, jurors, rounds, now, onDone }: { claim: Claim;
           </dl>
           <p className="mt-2 text-[0.8125rem] text-muted">
             The full proof is in the arguments of the judge&apos;s transaction on{" "}
-            <a href={EXPLORER} className="underline" translate="no">{CONTRACT_ID}</a>.
+            <Link href={RULINGS} className="underline" translate="no">{CONTRACT_ID}</Link>.
           </p>
         </>
       )}

@@ -49,6 +49,12 @@
   color-scheme: dark;
 }
 
+/* Hashes, account names and commands are read character by character. The display font would
+   otherwise draw an x after a digit as a multiplication sign, which isn't in the hash. */
+[translate="no"], pre, code {
+  font-variant-ligatures: none;
+}
+
 @theme inline {
   --color-bg: var(--bg);
   --color-deep: var(--deep);

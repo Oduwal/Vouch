@@ -7,7 +7,7 @@ Vouch is built for the `security` track of NEAR HACKATHON. Before an agent sends
 The problem: people and agents ask AI whether an account is safe to pay, and the AI loses nothing when it's wrong. On Vouch, an agent posts its call on a NEAR account and locks a bond behind it. For the next 24 hours anyone can challenge the call with evidence and a stake. An AI judge running in a verified TEE rules, and the loser can appeal to a staked jury.
 
 - **Live app:** https://vouch-near.vercel.app
-- **Contract:** `vouch.testnet` on NEAR testnet ([explorer](https://testnet.nearblocks.io/address/vouch.testnet))
+- **Contract:** `vouch.testnet` on NEAR testnet ([its transactions](https://vouch-near.vercel.app/account/vouch.testnet))
 - **Agent wallet:** `vouch-agent-wallet.testnet`, spent from by `vouch-pay-agent-2.testnet`
 
 ## Try it
@@ -90,9 +90,9 @@ The amounts and windows below are as configured on testnet.
 
 | Signal | Where it comes from | How it scores |
 |---|---|---|
-| Account age | NearBlocks `/account/{id}`, and the oldest key's nonce. On testnet, where the indexer lags by weeks, the younger date wins | Under a day blocks, under 30 days warns. A name that was deleted once warns |
+| Account age | NearBlocks `/account/{id}`, and the oldest key's nonce. On testnet, where the indexer stopped on 27 Sep 2026, the younger date wins | Under a day blocks, under 30 days warns. A name that was deleted once warns |
 | Activity history | FastNEAR transaction index, `POST tx.test.fastnear.com/v0/account` (`tx.main` on mainnet) | No transactions warns on a young account. The index can lack an old account's history, so silence doesn't count against one |
-| Contract, and recent code change | RPC `view_account`, including global contracts, and NearBlocks `/account/{id}/contract/deployments` | A deploy in the last day blocks, in the last week warns. If the indexer has no deploy on record, which is usual on testnet today, that warns too |
+| Contract, and recent code change | RPC `view_account`, including global contracts. On testnet, the code hash compared with archival blocks from a day and a week ago. On mainnet, NearBlocks `/account/{id}/contract/deployments` | A change in the last day blocks, in the last week warns. If this can't be read, that warns too |
 | Who can change the code (extra) | RPC `view_access_key_list` | A full-access key on a contract warns. A full-access key added this week warns on any older account |
 | Prior interactions, this agent and this receiver | `payments_to` on the agent's wallet contract, a record only real payments add to | A first payment needs the owner's yes, even on an `allow`. Having paid before never lowers a warning |
 | Shared blocklist with evidence | `get_reports` on the Vouch contract | A report with its bond at risk blocks. One nobody challenged asks a human for 30 days |
@@ -150,7 +150,7 @@ It doesn't re-run the event log, app identity or gateway checks, because the pro
 
 ### What you still have to trust
 
-- **The judge's key.** The contract accepts rulings from one key and checks that each carries its proof's hash, not that the proof is true. Someone with a stolen judge key and a NEAR AI account could get a real TEE answer to a case with false chain facts, or ask until they like the answer, and the verifier would still pass it. The loser could appeal, and a reader could spot the false facts. Checking Intel's quote on-chain is possible, at [about 135 to 288 Tgas a quote](https://docs.rs/dcap-qvl), but wouldn't close this alone: the hardware proves what the model answered, not that the case file it was given was honest. Closing it means running the judge service itself in a TEE, which is on the roadmap.
+- **The judge's key.** The contract accepts rulings from one key and checks that each carries its proof's hash, not that the proof is true. Someone with a stolen judge key and a NEAR AI account could get a real TEE answer to a case with false chain facts, or ask until they like the answer, and the verifier would still pass it. The loser could appeal, and a reader could spot the false facts. Checking Intel's quote on-chain is possible, at [about 135 to 288 Tgas a quote](https://docs.rs/dcap-qvl), but wouldn't close this alone: the hardware proves what the model answered, not that the case file it was given was honest. Closing it means running the judge service itself in a TEE, which isn't built yet.
 - **Intel, NVIDIA and NEAR AI.** They anchor the hardware and software checks. The default software check matches NEAR AI's image by name and doesn't pin the boot measurements. Pinning exact hashes is stricter, but a routine NEAR AI update would stop rulings until the pin changes. The gateway's software identity isn't checked.
 - **The owner's key.** A config or code change can be announced and made to wait until every running case could have closed, and at least two days: `propose_upgrade` announces the code's hash, and anyone can apply it after the delay. That only binds the owner once the account's full-access key is deleted.
 - **The agents' answers.** The sentinel and demo agent use the same TEE model, but their calls don't carry a proof each. They don't need to: the fixed rules and the wallet sit below them.
@@ -168,13 +168,6 @@ It doesn't re-run the event log, app identity or gateway checks, because the pro
 - **Rulings can vary.** Models are not perfectly consistent, which is why an appeal exists.
 - **Signals can be evaded.** Age, keys and deploy history are useful and incomplete. An old account with a clean history can still be malicious, and that's what challenges are for.
 - **Testnet, and not audited.** Nothing here has real value at stake, and the contracts haven't had a professional audit.
-
-## Roadmap
-
-- Running the judge service itself in a TEE, with its key made there, so no outside key can rule
-- Stake-weighted jury selection, and penalties for voting against the majority
-- Keeping part of a lost bond, so an agent challenging itself pays for it
-- Deleting the full-access key, then the announcing key, before mainnet
 
 ## Run it yourself
 
@@ -222,11 +215,10 @@ near contract call-function as-read-only vouch.testnet get_claim \
 
 - **AI model:** NEAR AI Cloud
 - **Attestation:** `@phala/dcap-qvl` for Intel TDX, NVIDIA NRAS for GPUs
-- **NEAR data:** FastNEAR RPC and transaction index, NearBlocks API
+- **NEAR data:** FastNEAR RPC, archival RPC and transaction index, NEAR's archival RPC, NearBlocks API
 - **Hosting:** Vercel, with an outside one-minute ping from cron-job.org
 - **Libraries:** `near-sdk`, `near-api-js`, `@hot-labs/near-connect`, `ethers`, Next.js, React, Tailwind CSS, `tsx`. The web app started from `create-next-app`
-- **Design:** Google Stitch, which made the home page's layout and its two pictures
-- **AI-written code:** much of this project was written with Claude Code
+- **AI tools:** Claude Code
 
 ## License
 
