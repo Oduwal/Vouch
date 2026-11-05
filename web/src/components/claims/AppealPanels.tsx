@@ -63,7 +63,7 @@ export function AppealPanel({ claim, config, jurors, now, onDone }: { claim: Cla
             type="button"
             disabled={busy || short}
             onClick={() => run(() => call("appeal", { claim_id: claim.id }, BigInt(config.appeal_fee), JURY_TGAS))}
-            className="min-h-11 bg-ink px-4 text-[0.875rem] font-semibold text-accent-ink transition-colors duration-150 hover:bg-lit active:bg-muted disabled:cursor-not-allowed disabled:bg-muted sm:min-h-9"
+            className="min-h-11 bg-ink px-4 text-[0.875rem] font-semibold text-accent-ink transition-colors duration-150 hover:bg-press active:bg-muted disabled:cursor-not-allowed disabled:bg-muted sm:min-h-9"
           >
             {busy ? "Waiting for your wallet…" : `Appeal for ${fee} NEAR`}
           </button>
@@ -210,7 +210,7 @@ export function JuryPanel({ claim, config, now, onDone }: { claim: Claim; config
                 type="button"
                 disabled={busy}
                 onClick={reveal}
-                className="mt-2 min-h-11 bg-ink px-4 text-[0.875rem] font-semibold text-accent-ink transition-colors duration-150 hover:bg-lit active:bg-muted disabled:cursor-wait disabled:bg-muted sm:min-h-9"
+                className="mt-2 min-h-11 bg-ink px-4 text-[0.875rem] font-semibold text-accent-ink transition-colors duration-150 hover:bg-press active:bg-muted disabled:cursor-wait disabled:bg-muted sm:min-h-9"
               >
                 {busy ? "Waiting for your wallet…" : "Reveal my vote"}
               </button>

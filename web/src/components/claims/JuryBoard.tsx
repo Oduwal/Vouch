@@ -53,7 +53,7 @@ function YourSeat({ me, config, now, onDone }: { me: Juror | null; config: Confi
       {!accountId ? (
         <>
           <p className="mt-1 text-[0.875rem]">Connect a testnet wallet to join the pool or vote on a case you were drawn for.</p>
-          <button type="button" onClick={() => run(connect)} className="mt-3 min-h-11 bg-ink px-4 text-[0.875rem] font-semibold text-accent-ink transition-colors duration-150 hover:bg-lit active:bg-muted sm:min-h-9">
+          <button type="button" onClick={() => run(connect)} className="mt-3 min-h-11 bg-ink px-4 text-[0.875rem] font-semibold text-accent-ink transition-colors duration-150 hover:bg-press active:bg-muted sm:min-h-9">
             Connect wallet
           </button>
         </>
@@ -109,7 +109,7 @@ function YourSeat({ me, config, now, onDone }: { me: Juror | null; config: Confi
               />
               <span className="pr-3 text-[0.8125rem] text-muted">NEAR</span>
             </div>
-            <button type="button" disabled={busy} onClick={join} className="min-h-[2.625rem] bg-ink px-4 text-[0.875rem] font-semibold text-accent-ink transition-colors duration-150 hover:bg-lit active:bg-muted disabled:cursor-wait disabled:bg-muted">
+            <button type="button" disabled={busy} onClick={join} className="min-h-[2.625rem] bg-ink px-4 text-[0.875rem] font-semibold text-accent-ink transition-colors duration-150 hover:bg-press active:bg-muted disabled:cursor-wait disabled:bg-muted">
               {busy ? "Waiting for your wallet…" : "Join the jury"}
             </button>
           </div>
@@ -170,7 +170,7 @@ export function JuryBoard({ initialJurors, initialClaims, config, serverNow }: {
             {ordered.length ? (
               <ul className="mt-2">
                 {ordered.map((claim) => (
-                  <li key={claim.id} className="border-t border-bg px-4 py-3 text-[0.875rem]">
+                  <li key={claim.id} className="border-t border-rule px-4 py-3 text-[0.875rem]">
                     <div className="flex flex-wrap items-baseline justify-between gap-x-4">
                       <Link href={`/claims/${claim.id}`} className="min-w-0 break-words font-medium no-underline hover:underline" translate="no">{claim.subject}</Link>
                       {yours.includes(claim) && <Link href={`/claims/${claim.id}`} className="font-medium underline-offset-4 hover:underline">Vote</Link>}
@@ -200,7 +200,7 @@ export function JuryBoard({ initialJurors, initialClaims, config, serverNow }: {
                 </thead>
                 <tbody className="tabular-nums">
                   {jurors.map((j) => (
-                    <tr key={j.account} className="border-t border-bg">
+                    <tr key={j.account} className="border-t border-rule">
                       <td className="break-words px-4 py-2.5">
                         <span className="font-medium" translate="no">{j.account}</span>
                         {isDemoJuror(j.account) && <span className="block text-[0.75rem] text-muted">Demo juror (bot)</span>}

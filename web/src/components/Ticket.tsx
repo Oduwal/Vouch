@@ -5,9 +5,9 @@ export type TicketData = {
   verdict: Level;
   // On-chain reasons are plain text, so the level is only known for a fresh check.
   reasons: (Omit<Reason, "level"> & { level?: Level })[];
-  issuer: string;
   bond: string;
-  note: string;
+  issuer?: string;
+  note?: string;
 };
 
 export function LevelIcon({ level, className = "" }: { level: Level; className?: string }) {
@@ -20,55 +20,39 @@ export function LevelIcon({ level, className = "" }: { level: Level; className?:
   );
 }
 
-const verdictLabel: Record<Level, string> = { allow: "Allow", warn: "Warn", block: "Block" };
+const LABEL = "text-xs font-bold text-[#444748] lowercase mb-1";
 
-export function Ticket({ data, lit = false }: { data: TicketData; lit?: boolean }) {
-  const ink = lit ? "text-lit-ink" : "text-ink";
-  const soft = lit ? "text-lit-muted" : "text-muted";
-  const solid = lit ? "bg-lit-ink text-lit" : "bg-ink text-accent-ink";
-
+export function Ticket({ data }: { data: TicketData }) {
   return (
-    <article
-      data-ui
-      aria-label={`Bond ticket for ${data.account}: ${verdictLabel[data.verdict]}`}
-      className={`flex aspect-[4/5] w-full flex-col p-[7%] ${lit ? "bg-lit" : "bg-surface"} ${ink}`}
-    >
-      <div className={`flex items-baseline justify-between text-[0.875rem] ${soft}`}>
-        <span>Bond ticket</span>
+    <article aria-label={`Bond ticket for ${data.account}: ${data.verdict}`} className="bg-white text-night p-8 border-2 border-night">
+      <div className="flex flex-wrap justify-between items-start gap-3 mb-6 pb-4 border-b-2 border-night">
+        <span className="text-4xl lg:text-6xl font-black lowercase tracking-tight leading-none">{data.verdict}</span>
+        <span className="bg-yellow text-night font-bold text-sm px-3 py-1 border-2 border-night lowercase">{data.bond}</span>
       </div>
-
-      <p className="mt-[6%] break-words text-[clamp(1.125rem,1.6vw,1.5rem)] font-medium leading-tight" translate="no">
-        {data.account}
-      </p>
-
-      <p
-        className={`mt-[5%] py-[4%] text-center text-[clamp(2rem,3.6vw,3.25rem)] ${
-          data.verdict === "block" ? solid : data.verdict === "warn" ? `outline outline-[3px] -outline-offset-[3px] ${lit ? "outline-lit-ink" : "outline-ink"}` : ""
-        }`}
-      >
-        <span className="display">{verdictLabel[data.verdict]}</span>
-      </p>
-
-      <ul className="mt-[6%] space-y-2 text-[0.9375rem] leading-snug">
-        {data.reasons.slice(0, 3).map((r) => (
-          <li key={r.text} className="flex gap-2.5">
-            {r.level && <LevelIcon level={r.level} className="mt-0.5" />}
-            <span>{r.text}</span>
-          </li>
-        ))}
-      </ul>
-
-      <dl className="mt-auto space-y-1.5 pt-5 text-[0.875rem] tabular-nums">
-        {[
-          ["Issued by", data.issuer],
-          [data.bond, data.note],
-        ].map(([k, v]) => (
-          <div key={k} className="flex flex-wrap justify-between gap-x-4">
-            <dt className={soft}>{k}</dt>
-            <dd translate="no">{v}</dd>
+      <div className="space-y-4">
+        <div>
+          <div className={LABEL}>target account</div>
+          <div className="font-bold text-lg lowercase [overflow-wrap:anywhere]" translate="no">{data.account}</div>
+        </div>
+        <div>
+          <div className={LABEL}>reasoning</div>
+          <ul className="space-y-2">
+            {data.reasons.map((r) => (
+              <li key={r.text} className="flex gap-2 font-medium lowercase text-base">
+                {r.level && <LevelIcon level={r.level} className="mt-1" />}
+                <span>{r.text}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+        {data.issuer && (
+          <div>
+            <div className={LABEL}>issued by</div>
+            <div className="font-medium lowercase [overflow-wrap:anywhere]" translate="no">{data.issuer}</div>
           </div>
-        ))}
-      </dl>
+        )}
+        {data.note && <p className="text-sm font-bold lowercase">{data.note}</p>}
+      </div>
     </article>
   );
 }

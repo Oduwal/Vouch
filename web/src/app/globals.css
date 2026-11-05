@@ -1,38 +1,52 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #3d0012;
-  --deep: #2a000c;
-  --surface: #4d0519;
-  --ink: #ff99d3;
-  --muted: #d68ab3;
-  --accent: #ff99d3;
-  --accent-ink: #3d0012;
-  --lit: #ffe8f4;
-  --lit-ink: #3d0012;
-  --lit-muted: #7a2a4c;
+  /* The fields: near-black, electric yellow, off-white, sky blue and graphite. */
+  --night: #111111;
+  --yellow: #ffd400;
+  --paper: #f2f0ea;
+  --sky: #7ab8e8;
+  --graphite: #2b2f33;
+  --graphite-deep: #1c1f22;
+  --white: #ffffff;
+
+  /* The app screens: no colour in the chrome. Colour is for data and verdicts. */
+  --bg: #f2f0ea;
+  --deep: #e6e3da;
+  --surface: #ffffff;
+  --ink: #111111;
+  --muted: #55585c;
+  --accent: #111111;
+  --accent-ink: #ffffff;
+  --press: #2b2f33;
+  --lit: #e6e3da;
+  --lit-ink: #111111;
+  --lit-muted: #55585c;
+  --rule: #e6e3da;
 
   --step-small: clamp(0.8125rem, 0.79rem + 0.1vw, 0.875rem);
   --step-body: clamp(1.0625rem, 1rem + 0.25vw, 1.1875rem);
   --step-lead: clamp(1.25rem, 1.1rem + 0.7vw, 1.625rem);
   --step-head: clamp(2rem, 1.3rem + 3.2vw, 4rem);
+  --step-display: clamp(3.25rem, 9vw, 9rem);
   --margin: clamp(1.25rem, 2.2vw, 2rem);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* The same two colors, swapped. Tickets and invoices flip to burgundy so they still stand off the page. */
-:root[data-theme="light"] {
-  --bg: #ffe8f4;
-  --deep: #ffd6eb;
-  --surface: #fff5fa;
-  --ink: #3d0012;
-  --muted: #7a2a4c;
-  --accent: #3d0012;
-  --accent-ink: #ffe8f4;
-  --lit: #4d0519;
-  --lit-ink: #ffe8f4;
-  --lit-muted: #f0b4d4;
-  color-scheme: light;
+:root[data-theme="dark"] {
+  --bg: #111111;
+  --deep: #1c1f22;
+  --surface: #1c1f22;
+  --ink: #f2f0ea;
+  --muted: #b5b3ad;
+  --accent: #ffd400;
+  --accent-ink: #111111;
+  --press: #f2f0ea;
+  --lit: #2b2f33;
+  --lit-ink: #f2f0ea;
+  --lit-muted: #b5b3ad;
+  --rule: #2b2f33;
+  color-scheme: dark;
 }
 
 @theme inline {
@@ -43,37 +57,45 @@
   --color-muted: var(--muted);
   --color-accent: var(--accent);
   --color-accent-ink: var(--accent-ink);
+  --color-press: var(--press);
   --color-lit: var(--lit);
   --color-lit-ink: var(--lit-ink);
   --color-lit-muted: var(--lit-muted);
-  --font-sans: var(--font-tiktok);
+  --color-rule: var(--rule);
+  --color-night: var(--night);
+  --color-yellow: var(--yellow);
+  --color-paper: var(--paper);
+  --color-sky: var(--sky);
+  --color-graphite: var(--graphite);
+  --color-graphite-deep: var(--graphite-deep);
+  --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, "Cascadia Code", Menlo, monospace; /* taste-skill-ignore: only <pre>/<code> blocks use it */
 }
 
 html {
-  color-scheme: dark;
+  color-scheme: light;
   background: var(--bg);
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
-  scrollbar-color: var(--muted) var(--deep);
+  scroll-padding-top: 4rem;
 }
 
 body {
   background: var(--bg);
   color: var(--ink);
-  font-family: var(--font-tiktok), system-ui, sans-serif;
+  font-family: var(--font-sans);
   font-size: var(--step-body);
-  line-height: 1.45;
-  caret-color: var(--ink);
+  line-height: 1.5;
+  caret-color: currentColor;
 }
 
 ::selection {
-  background: var(--ink);
-  color: var(--accent-ink);
+  background: var(--yellow);
+  color: var(--night);
 }
 
 :focus-visible {
-  outline: 3px solid var(--ink);
+  outline: 3px solid currentColor;
   outline-offset: 3px;
 }
 
@@ -84,11 +106,10 @@ a {
 
 @layer components {
   .display {
-    font-weight: 800;
-    font-stretch: 150%;
-    text-transform: uppercase;
-    letter-spacing: -0.01em;
-    line-height: 1;
+    font-weight: 700;
+    letter-spacing: -0.05em;
+    line-height: 0.9;
+    text-transform: lowercase;
   }
 
   .page {
@@ -106,23 +127,5 @@ a {
     opacity: 1;
     transform: none;
     clip-path: inset(0 0 0 0);
-  }
-}
-
-/* Entrances run off the scroll position, so they need no script and browsers without support just show the content. */
-@keyframes reveal {
-  from {
-    opacity: 0;
-    transform: translateY(28px);
-  }
-}
-
-@supports (animation-timeline: view()) {
-  @media (prefers-reduced-motion: no-preference) {
-    [data-reveal] {
-      animation: reveal linear both;
-      animation-timeline: view();
-      animation-range: entry calc(var(--i, 0) * 6%) entry calc(55% + var(--i, 0) * 6%);
-    }
   }
 }

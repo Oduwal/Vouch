@@ -1,28 +1,33 @@
 import type { Metadata, Viewport } from "next";
-import { TikTok_Sans } from "next/font/google";
+import { JetBrains_Mono, Plus_Jakarta_Sans } from "next/font/google";
 import { THEME_SCRIPT } from "../lib/theme";
 import "./globals.css";
 
-const tiktok = TikTok_Sans({
-  variable: "--font-tiktok",
+const jakarta = Plus_Jakarta_Sans({
+  variable: "--font-jakarta",
   weight: "variable",
-  axes: ["wdth"],
   subsets: ["latin"],
+});
+
+// Only the phone layout of the home page sets type in it, so it isn't preloaded everywhere.
+const jetbrains = JetBrains_Mono({
+  variable: "--font-jetbrains",
+  subsets: ["latin"],
+  preload: false,
 });
 
 export const metadata: Metadata = {
   title: "Vouch",
-  description: "Bonded safety checks for AI agents that pay. Wrong calls cost the checker its bond.",
+  description: "A counterparty check for AI agents that pay, with a bond behind every answer.",
 };
 
-// Dark is the brand's first impression. Light is a choice each visitor makes with the toggle.
 export const viewport: Viewport = {
-  themeColor: "#3d0012",
+  themeColor: "#f2f0ea",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${tiktok.variable} antialiased`} suppressHydrationWarning>
+    <html lang="en" className={`${jakarta.variable} ${jetbrains.variable} antialiased`} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>

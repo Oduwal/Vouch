@@ -123,7 +123,7 @@ export function ClaimsBoard({ initial, serverNow }: { initial: Claim[]; serverNo
             {rows.map((claim) => {
               const challengeable = phaseOf(claim, now) === "open";
               return (
-                <tr key={claim.id} className="border-t border-bg transition-colors duration-150 hover:bg-deep">
+                <tr key={claim.id} className="border-t border-rule transition-colors duration-150 hover:bg-deep">
                   <td className="px-4 py-3">
                     <Link href={`/claims/${claim.id}`} className="block break-words font-medium no-underline hover:underline sm:truncate" translate="no">
                       {claim.subject}

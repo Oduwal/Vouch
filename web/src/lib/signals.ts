@@ -14,8 +14,9 @@ export type Check = {
   facts: {
     exists: boolean;
     createdAt: string | null;
-    // "indexer" is the account's creation; "oldest-key" is when its oldest access key was added.
-    ageSource: "indexer" | "oldest-key" | null;
+    // "indexer" is the account's creation; "oldest-key" is when its oldest access key was added;
+    // "oldest-tx" is its oldest transaction in the index, which can only understate its age.
+    ageSource: "indexer" | "oldest-key" | "oldest-tx" | null;
     isContract: boolean;
     fullAccessKeys: number | null;
     deployCount: number | null;
@@ -44,7 +45,9 @@ const TX_INDEX: Record<Network, string> = {
 };
 const INDEX_PAGE = 1;
 const EMPTY_CODE_HASH = "11111111111111111111111111111111";
-const DAY = 24 * 60 * 60 * 1000;
+const MINUTE = 60 * 1000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
 // A new access key's nonce starts at the block height times this.
 const NONCE_PER_BLOCK = BigInt(1_000_000);
 
@@ -74,13 +77,31 @@ async function rpc<T>(network: Network, method: string, params: Record<string, u
 const query = <T>(network: Network, params: Record<string, unknown>) =>
   rpc<T>(network, "query", { finality: "final", ...params });
 
-async function nearblocks<T>(network: Network, path: string): Promise<T | null> {
+// NearBlocks' free tier stops answering after about a dozen requests a minute, so its last answers are kept
+// and used when it says no. How long an answer stays good depends on what it says, so callers choose.
+const REMEMBERED_LIMIT = 500;
+const remembered = new Map<string, { at: number; value: unknown }>();
+
+type Keep = { key?: string; freshMs: number; staleMs: number };
+
+async function nearblocks<T>(network: Network, path: string, { key = path, freshMs, staleMs }: Keep): Promise<T | null> {
+  const id = `${network}:${key}`;
+  const known = remembered.get(id);
+  if (known && Date.now() - known.at < freshMs) return known.value as T;
+  let fresh: T | null = null;
   try {
     const res = await fetch(`${NEARBLOCKS[network]}${path}`, { signal: AbortSignal.timeout(6000) });
-    return res.ok ? await res.json() : null;
+    if (res.ok) fresh = await res.json();
   } catch {
-    return null;
+    // An outage looks the same as a refusal: fall through to what we knew.
   }
+  if (fresh) {
+    remembered.delete(id);
+    remembered.set(id, { at: Date.now(), value: fresh });
+    if (remembered.size > REMEMBERED_LIMIT) remembered.delete(remembered.keys().next().value as string);
+    return fresh;
+  }
+  return known && Date.now() - known.at < staleMs ? (known.value as T) : null;
 }
 
 type IndexedTx = { transaction_hash: string; tx_block_timestamp: string };
@@ -118,6 +139,24 @@ const fromNanos = (ns: string | number) => new Date(Number(BigInt(ns) / BigInt(1
 
 type Block = { header: { height: number; timestamp_nanosec: string } };
 
+// The oldest transaction the index has, from another source than NearBlocks. Older history can be missing
+// from the index, so this can make an account look younger than it is, but never older.
+async function oldestTxAt(network: Network, account: string): Promise<Date | null> {
+  try {
+    const res = await fetch(`${TX_INDEX[network]}/v0/account`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ account_id: account, limit: 1, desc: false }),
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!res.ok) return null;
+    const stamp = (await res.json()).account_txs?.[0]?.tx_block_timestamp;
+    return stamp ? fromNanos(stamp) : null;
+  } catch {
+    return null;
+  }
+}
+
 // When the indexer has no creation time (the testnet indexer often lags), date the oldest access key
 // from its nonce. Nodes only keep about a day of blocks, so older heights are dated from the
 // average block time.
@@ -141,11 +180,12 @@ async function oldestKeyAddedAt(network: Network, nonces: bigint[]): Promise<Dat
 
 export async function checkAccount(account: string, { reports: readReports = true, ignoreReportsBy }: CheckOptions = {}): Promise<Check> {
   const network = networkOf(account);
+  const reading = query<{ code_hash: string; global_contract_hash?: string | null; global_contract_account_id?: string | null }>(network, {
+    request_type: "view_account",
+    account_id: account,
+  });
   const [state, keys, info, deploys, activity, reported] = await Promise.all([
-    query<{ code_hash: string; global_contract_hash?: string | null; global_contract_account_id?: string | null }>(network, {
-      request_type: "view_account",
-      account_id: account,
-    }),
+    reading,
     // Accounts with thousands of keys make this query fail; the key signals are then skipped.
     query<{ keys: { access_key: { nonce: number | string; permission: unknown } }[] }>(network, {
       request_type: "view_access_key_list",
@@ -154,8 +194,18 @@ export async function checkAccount(account: string, { reports: readReports = tru
     nearblocks<{ account: { created?: { block_timestamp: number | string }; deleted?: { block_timestamp: number | string | null } }[] }>(
       network,
       `/account/${account}`,
+      { freshMs: 5 * MINUTE, staleMs: 6 * HOUR },
     ),
-    nearblocks<{ deployments: { block_timestamp: string }[] }>(network, `/account/${account}/contract/deployments`),
+    // A deploy changes the code hash, so a list read under the same hash is still the whole list.
+    reading.then((s) =>
+      s
+        ? nearblocks<{ deployments: { block_timestamp: string }[] }>(network, `/account/${account}/contract/deployments`, {
+            key: `${account}/deployments@${s.global_contract_hash ?? s.global_contract_account_id ?? s.code_hash}`,
+            freshMs: 10 * MINUTE,
+            staleMs: Infinity,
+          })
+        : null,
+    ),
     txIndex(network, account),
     // The blocklist lives on testnet, where NEAR is free, so it says nothing about a mainnet account.
     readReports && network === "testnet" ? view<Claim[]>("get_reports", { subject: account }).catch(() => null) : Promise.resolve([] as Claim[]),
@@ -197,8 +247,9 @@ export async function checkAccount(account: string, { reports: readReports = tru
   // A name deleted and made again keeps its old indexer date, and the testnet indexer lags by weeks. There
   // the younger date wins. On mainnet the indexer does, so rotating a key doesn't make an account look new.
   const keyFirst = (network === "testnet" || wasDeleted) && keyedAt && (!indexedAt || keyedAt > indexedAt);
-  const createdAt = keyFirst ? keyedAt : (indexedAt ?? keyedAt);
-  const ageSource: Check["facts"]["ageSource"] = !createdAt ? null : createdAt === indexedAt ? "indexer" : "oldest-key";
+  const txAt = indexedAt || keyedAt ? null : await oldestTxAt(network, account);
+  const createdAt = keyFirst ? keyedAt : (indexedAt ?? keyedAt ?? txAt);
+  const ageSource: Check["facts"]["ageSource"] = !createdAt ? null : createdAt === indexedAt ? "indexer" : createdAt === keyedAt ? "oldest-key" : "oldest-tx";
   const deployments = deploys?.deployments?.length ? deploys.deployments : null;
   // The API doesn't sort these.
   const lastDeployNanos = deployments?.reduce((latest, d) => (BigInt(d.block_timestamp) > latest ? BigInt(d.block_timestamp) : latest), BigInt(0));
@@ -207,7 +258,7 @@ export async function checkAccount(account: string, { reports: readReports = tru
 
   if (createdAt) {
     const age = now - createdAt.getTime();
-    const what = ageSource === "indexer" ? "Account" : "Oldest key on this account";
+    const what = ageSource === "indexer" ? "Account" : ageSource === "oldest-key" ? "Oldest key on this account" : "The earliest record of this account";
     if (age < DAY) reasons.push({ level: "block", text: `${what} was created less than a day ago` });
     else if (age < 30 * DAY) reasons.push({ level: "warn", text: `${what} is only ${count(Math.floor(age / DAY), "day")} old` });
     else if (age < 365 * DAY) reasons.push({ level: "allow", text: `${what} has existed for ${count(Math.floor(age / (30 * DAY)), "month")}` });

@@ -123,7 +123,7 @@ export function AttackDemo({ recorded, live }: { recorded: AttackEvent[]; live: 
             type="button"
             onClick={runLive}
             disabled={running}
-            className="min-h-11 bg-ink px-4 text-[0.875rem] font-semibold text-accent-ink transition-colors duration-150 hover:bg-lit active:bg-muted disabled:cursor-wait disabled:bg-muted sm:min-h-9"
+            className="min-h-11 bg-ink px-4 text-[0.875rem] font-semibold text-accent-ink transition-colors duration-150 hover:bg-press active:bg-muted disabled:cursor-wait disabled:bg-muted sm:min-h-9"
           >
             {running ? "Running on testnet…" : "Run it live on testnet"}
           </button>

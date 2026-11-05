@@ -64,7 +64,7 @@ function CaseTimeline({ steps }: { steps: Step[] }) {
           <li key={step.label} aria-current={step.state === "now" ? "step" : undefined} className="min-w-0 max-sm:flex max-sm:gap-3">
             <span
               aria-hidden="true"
-              className={`block h-2 shrink-0 max-sm:mt-1.5 max-sm:w-2 ${step.state === "done" ? "bg-ink" : step.state === "now" ? "bg-lit" : "bg-bg"}`}
+              className={`block h-2 shrink-0 max-sm:mt-1.5 max-sm:w-2 ${step.state === "done" ? "bg-ink" : step.state === "now" ? "bg-yellow" : "bg-deep"}`}
             />
             <span className="block sm:mt-2.5">
               <span className={`block text-[0.875rem] font-medium leading-snug ${step.state === "next" ? "text-muted" : ""}`}>{step.label}</span>
@@ -93,7 +93,7 @@ function PastRounds({ rounds }: { rounds: Round[] }) {
             <p className="mt-0.5 max-w-[65ch] whitespace-pre-wrap break-words">{challenge.evidence}</p>
             {ruling && <p className="mt-1 max-w-[65ch] whitespace-pre-wrap break-words text-muted">Judge: {ruling.summary}</p>}
             {appeal?.decided && <p className="mt-1 text-muted">The jury sided with the {appeal.decided}.</p>}
-            {ruling && <p className="mt-1 break-all font-mono text-[0.75rem] text-muted" translate="no">{ruling.attestation}</p>}
+            {ruling && <p className="mt-1 break-all text-[0.75rem] text-muted" translate="no">{ruling.attestation}</p>}
           </li>
         ))}
       </ol>
@@ -152,7 +152,7 @@ function Outcome({ claim, config, jurors, rounds, now, onDone }: { claim: Claim;
             </div>
             <div className="flex flex-wrap gap-x-3">
               <dt className="text-muted">Proof hash</dt>
-              <dd className="min-w-0 break-all font-mono text-[0.75rem]" translate="no">{ruling.attestation}</dd>
+              <dd className="min-w-0 break-all text-[0.75rem]" translate="no">{ruling.attestation}</dd>
             </div>
           </dl>
           <p className="mt-2 text-[0.8125rem] text-muted">
@@ -172,9 +172,9 @@ function toTicket(claim: Claim, now: number): TicketData {
   return {
     account: claim.subject,
     verdict: claim.verdict,
-    reasons: claim.reasons.map((text) => ({ text })),
+    reasons: claim.reasons.slice(0, 3).map((text) => ({ text })),
     issuer: claim.agent,
-    bond: `Bond ${formatNear(claim.bond)} NEAR`,
+    bond: `bond ${formatNear(claim.bond)} NEAR`,
     note: statusLine(claim, now),
   };
 }
@@ -235,7 +235,7 @@ export function ClaimDetail({ initial, config, agent, jurors, serverNow }: { ini
           </p>
         </div>
         {phase === "open" && (
-          <a href="#challenge" className="flex min-h-11 items-center sm:min-h-9 bg-ink px-4 text-[0.875rem] font-semibold text-accent-ink no-underline transition-colors duration-150 hover:bg-lit active:bg-muted">
+          <a href="#challenge" className="flex min-h-11 items-center sm:min-h-9 bg-ink px-4 text-[0.875rem] font-semibold text-accent-ink no-underline transition-colors duration-150 hover:bg-press active:bg-muted">
             Challenge this call
           </a>
         )}
@@ -245,7 +245,7 @@ export function ClaimDetail({ initial, config, agent, jurors, serverNow }: { ini
         <div className="grid min-w-0 gap-4">
           <dl className="grid bg-surface sm:grid-cols-3">
             {stakes.map((s, i) => (
-              <div key={s.label} className={`px-5 py-4 ${i ? "border-bg max-sm:border-t sm:border-l" : ""}`}>
+              <div key={s.label} className={`px-5 py-4 ${i ? "border-rule max-sm:border-t sm:border-l" : ""}`}>
                 <dt className="text-[0.8125rem] text-muted">{s.label}</dt>
                 <dd className="mt-0.5 text-[1.375rem] font-semibold leading-tight tabular-nums">
                   {s.value} {s.unit && <span className="text-[0.8125rem] font-normal text-muted">{s.unit}</span>}
@@ -270,7 +270,7 @@ export function ClaimDetail({ initial, config, agent, jurors, serverNow }: { ini
 
         {/* Below the desktop layout the ticket comes first: it holds the verdict this screen is about. */}
         <aside className="grid items-start gap-4 max-lg:order-first sm:max-lg:grid-cols-2 lg:sticky lg:top-4">
-          <Ticket data={toTicket(claim, now)} lit />
+          <Ticket data={toTicket(claim, now)} />
           {claim.reasons.length > 3 && (
             <ul className="space-y-1 bg-surface p-4 text-[0.875rem]">
               {claim.reasons.slice(3).map((r) => <li key={r}>{r}</li>)}

@@ -10,8 +10,8 @@ function subscribe(listener: () => void) {
     listeners.delete(listener);
   };
 }
-const currentTheme = (): Theme => (document.documentElement.dataset.theme === "light" ? "light" : "dark");
-const serverTheme = (): Theme => "dark";
+const currentTheme = (): Theme => (document.documentElement.dataset.theme === "dark" ? "dark" : "light");
+const serverTheme = (): Theme => "light";
 
 function setTheme(theme: Theme) {
   document.documentElement.dataset.theme = theme;

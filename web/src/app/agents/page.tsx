@@ -39,7 +39,7 @@ async function Board() {
         </thead>
         <tbody className="tabular-nums">
           {ranked(agents).map((agent) => (
-            <tr key={agent.account} className="border-t border-bg">
+            <tr key={agent.account} className="border-t border-rule">
               <td className="break-words px-4 py-2.5 font-medium" translate="no">{agent.account}</td>
               <td className="px-2 py-2.5 text-right sm:px-4">{agent.calls_made}</td>
               <td className="px-2 py-2.5 text-right sm:px-4">{agent.calls_held}</td>

@@ -14,7 +14,7 @@ import { TESTNET_RPC, isDisputed, isLive, parseNear, type Claim } from "../vouch
 import type { Vouched } from "./sentinel";
 
 export const AGENT_WALLET = process.env.AGENT_WALLET_ID ?? "vouch-agent-wallet.testnet";
-const AGENT_ID = process.env.AGENT_ACCOUNT_ID ?? "vouch-pay-agent.testnet";
+const AGENT_ID = process.env.AGENT_ACCOUNT_ID ?? "vouch-pay-agent-2.testnet";
 const PAY_TGAS = "150";
 const VERDICTS = new Set(["allow", "warn", "block"]);
 

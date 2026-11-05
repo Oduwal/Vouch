@@ -8,7 +8,7 @@ The problem: people and agents ask AI whether an account is safe to pay, and the
 
 - **Live app:** https://vouch-near.vercel.app
 - **Contract:** `vouch.testnet` on NEAR testnet ([explorer](https://testnet.nearblocks.io/address/vouch.testnet))
-- **Agent wallet:** `vouch-agent-wallet.testnet`, spent from by `vouch-pay-agent.testnet`
+- **Agent wallet:** `vouch-agent-wallet.testnet`, spent from by `vouch-pay-agent-2.testnet`
 
 ## Try it
 
@@ -31,7 +31,7 @@ curl "https://vouch-near.vercel.app/api/check?account=faucet.testnet"
 curl -X POST https://vouch-near.vercel.app/api/vouch \
   -H "Content-Type: application/json" -d '{"account":"faucet.testnet"}'
 
-near account list-keys vouch-pay-agent.testnet network-config testnet now
+near account list-keys vouch-pay-agent-2.testnet network-config testnet now
 ```
 
 ### The attack log
@@ -110,7 +110,7 @@ The paying agent signs with a [function-call key](https://docs.near.org/protocol
 **What the key's limits don't cover:**
 
 - **It's only as narrow as the contract behind it.** The wallet is what limits the money, so a bug in the wallet would matter more than the key.
-- **It can lock itself out.** An account with only function-call keys can't add a key or move its own NEAR, and a capped gas allowance can't be refilled. So this key has no cap, and its account holds only a little NEAR for gas. If the key leaks or the agent's account is stuck, the owner calls `set_agent` on the wallet, ideally after `freeze`.
+- **It can lock itself out.** An account with only function-call keys can't add a key or move its own NEAR, and a capped gas allowance can't be refilled. So this key has no cap, and its account holds only a little NEAR for gas. The first agent account, `vouch-pay-agent.testnet`, was given a 0.25 NEAR cap by a library default, so on 5 Nov the owner moved the wallet to `vouch-pay-agent-2.testnet` with `set_agent`. Runs recorded before then were signed by the first account. If the key leaks or the agent's account is stuck, the owner calls `set_agent` on the wallet, ideally after `freeze`.
 - **Gas is a separate budget from money.** An allowance only limits gas. The spending limits below are enforced by the wallet.
 
 **What the wallet enforces, on-chain, for every `pay` and `call`:**
@@ -225,6 +225,7 @@ near contract call-function as-read-only vouch.testnet get_claim \
 - **NEAR data:** FastNEAR RPC and transaction index, NearBlocks API
 - **Hosting:** Vercel, with an outside one-minute ping from cron-job.org
 - **Libraries:** `near-sdk`, `near-api-js`, `@hot-labs/near-connect`, `ethers`, Next.js, React, Tailwind CSS, `tsx`. The web app started from `create-next-app`
+- **Design:** Google Stitch, which made the home page's layout and its two pictures
 - **AI-written code:** much of this project was written with Claude Code
 
 ## License

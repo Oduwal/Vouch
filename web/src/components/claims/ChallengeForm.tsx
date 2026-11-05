@@ -100,7 +100,7 @@ export function ChallengeForm({ claim, config, onFiled }: { claim: Claim; config
         <button
           type="submit"
           disabled={state === "signing" || isAgent}
-          className="min-h-[2.625rem] bg-ink px-5 font-semibold text-accent-ink transition-colors duration-150 hover:bg-lit active:bg-muted disabled:cursor-not-allowed disabled:bg-muted"
+          className="min-h-[2.625rem] bg-ink px-5 font-semibold text-accent-ink transition-colors duration-150 hover:bg-press active:bg-muted disabled:cursor-not-allowed disabled:bg-muted"
         >
           {state === "signing" ? "Waiting for your wallet…" : accountId ? "Stake and challenge" : "Connect wallet and challenge"}
         </button>

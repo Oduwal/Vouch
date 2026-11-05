@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useWallet } from "../../lib/wallet";
 import { ThemeToggle } from "../ThemeToggle";
+import { AppTabBar } from "./AppTabBar";
 
 export function TopBar() {
   const { accountId, connect, disconnect } = useWallet();
@@ -21,12 +22,17 @@ export function TopBar() {
   }
 
   return (
+    <>
     <header className="bg-deep">
       <div className="mx-auto flex min-h-14 max-w-[72rem] flex-wrap items-center gap-x-4 gap-y-1 sm:gap-x-6 px-[var(--margin)] py-2 text-[0.875rem]">
-        <Link href="/" className="display text-[1.125rem] no-underline" translate="no">
-          Vouch
+        <Link href="/" className="display text-[1.5rem] no-underline" translate="no">
+          vouch
         </Link>
-        <nav aria-label="Main" className="flex items-center gap-4 sm:gap-5">
+        <span className="md:hidden flex items-center gap-1.5 px-2 py-0.5 bg-yellow text-night">
+          <span className="size-1.5 bg-night" />
+          <span className="font-[family-name:var(--font-jetbrains)] text-[11px] tracking-tight uppercase font-bold">testnet</span>
+        </span>
+        <nav aria-label="Main" className="max-md:hidden flex items-center gap-4 sm:gap-5">
           <Link href="/claims" className="py-2 no-underline hover:underline">
             Calls
           </Link>
@@ -61,5 +67,7 @@ export function TopBar() {
         </div>
       </div>
     </header>
+    <AppTabBar />
+    </>
   );
 }
