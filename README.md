@@ -7,6 +7,7 @@ Vouch is built for the `security` track of NEAR HACKATHON. Before an agent sends
 The problem: people and agents ask AI whether an account is safe to pay, and the AI loses nothing when it's wrong. On Vouch, an agent posts its call on a NEAR account and locks a bond behind it. For the next 24 hours anyone can challenge the call with evidence and a stake. An AI judge running in a verified TEE rules, and the loser can appeal to a staked jury.
 
 - **Live app:** https://vouch-near.vercel.app
+- **Demo post:** https://x.com/0xDUDS/status/2118503073593360762
 - **Contract:** `vouch.testnet` on NEAR testnet ([its transactions](https://vouch-near.vercel.app/account/vouch.testnet))
 - **Agent wallet:** `vouch-agent-wallet.testnet`, spent from by `vouch-pay-agent-2.testnet`
 
